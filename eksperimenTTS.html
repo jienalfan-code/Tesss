@@ -1,0 +1,194 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pendeteksi Kata Berikutnya</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 50px auto;
+      padding: 20px;
+    }
+
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+    }
+
+    .flex {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .rekomendasi {
+      display: none;
+    }
+
+    .rekomendasi button {
+      flex: 1;
+      background: transparent;
+      border: none;
+      padding: 8px 2px;
+      color: #2563eb;
+      cursor: pointer;
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }
+
+    .rekomendasi button:hover {
+      text-decoration: underline;
+    }
+
+    .rekomendasi button:disabled {
+      display: none;
+    }
+
+    .peringkat {
+      display: block;
+      color: #777;
+      font-size: 11px;
+      margin-bottom: 5px;
+    }
+
+    #status {
+      color: #777;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h2>Pendeteksi Kata Berikutnya</h2>
+
+  <input
+    type="text"
+    id="inputText"
+    placeholder="Mulai ketik, misalnya: saya"
+    autocomplete="off"
+  >
+
+  <div class="flex rekomendasi" id="daftarRekomendasi">
+    <button type="button"></button>
+    <button type="button"></button>
+    <button type="button"></button>
+  </div>
+
+  <p id="status"></p>
+
+  <script>
+    let text = "saya akan lawan saya akan menang";
+
+    let textPecah = text.split(" ");
+
+    // Bangun pasangan kata dan hitung frekuensinya
+    let kombibasi_text = [];
+
+    for (let i = 0; i < textPecah.length - 1; i++) {
+      let dataSementara = [
+        textPecah[i],
+        textPecah[i + 1]
+      ];
+
+      let pasanganDitemukan = kombibasi_text.find(
+        pasangan =>
+          pasangan.premis[0] === dataSementara[0] &&
+          pasangan.premis[1] === dataSementara[1]
+      );
+
+      if (pasanganDitemukan) {
+        pasanganDitemukan.jumlah += 1;
+      } else {
+        kombibasi_text.push({
+          premis: dataSementara,
+          jumlah: 1
+        });
+      }
+    }
+
+    // Ambil elemen HTML
+    const inputText = document.getElementById("inputText");
+    const daftarRekomendasi =
+      document.getElementById("daftarRekomendasi");
+
+    const tombolRekomendasi =
+      daftarRekomendasi.querySelectorAll("button");
+
+    const status = document.getElementById("status");
+
+    // Cari rekomendasi ketika user mengetik
+    inputText.addEventListener("input", function () {
+      const kataInput = inputText.value.trim().split(/\s+/);
+      const kataTerakhir = kataInput[kataInput.length - 1];
+
+      // Sembunyikan jika input masih kosong
+      if (!inputText.value.trim()) {
+        daftarRekomendasi.style.display = "none";
+        status.textContent = "";
+        return;
+      }
+
+      // Cari pasangan yang kata pertamanya cocok
+      let hasilRekomendasi = kombibasi_text
+        .filter(pasangan =>
+          pasangan.premis[0] === kataTerakhir
+        )
+        .sort((a, b) => b.jumlah - a.jumlah)
+        .slice(0, 3);
+
+      // Tampilkan maksimal tiga rekomendasi
+      daftarRekomendasi.style.display =
+        hasilRekomendasi.length ? "flex" : "none";
+
+      tombolRekomendasi.forEach((tombol, index) => {
+        const rekomendasi = hasilRekomendasi[index];
+
+        if (rekomendasi) {
+          tombol.disabled = false;
+          tombol.innerHTML = `
+            <span class="peringkat">
+              Juara ${index + 1} · ${rekomendasi.jumlah}x
+            </span>
+            ${rekomendasi.premis[1]}
+          `;
+
+          tombol.onclick = function () {
+            const kataTambahan = rekomendasi.premis[1];
+
+            inputText.value =
+              inputText.value.trimEnd() + " " + kataTambahan;
+
+            inputText.focus();
+
+            // Perbarui rekomendasi setelah kata ditambahkan
+            inputText.dispatchEvent(new Event("input"));
+          };
+        } else {
+          tombol.disabled = true;
+          tombol.textContent = "";
+        }
+      });
+
+      if (hasilRekomendasi.length === 0) {
+        status.textContent =
+          "Belum ada rekomendasi untuk kata ini.";
+      } else {
+        status.textContent =
+          "Rekomendasi berdasarkan frekuensi pasangan kata.";
+      }
+    });
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Penyimpan Teks Rahasia di Foto</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; background: #fafafa; color: #333; }
+        .box { background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #eee; }
+        input, textarea, button { width: 100%; margin: 10px 0; box-sizing: border-box; padding: 12px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; }
+        textarea { height: 80px; resize: none; }
+        button { background: #ff5722; color: white; border: none; font-weight: bold; cursor: pointer; }
+        button.decode-btn { background: #009688; }
+        label { font-weight: bold; display: block; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <h2>🔐 Penyimpan Teks Rahasia di Foto</h2>
+
+    <!-- BAGIAN 1: MASUKKAN TEKS -->
+    <div class="box">
+        <h3>1. Masukkan Teks ke Foto</h3>
+        <label>Pilih Foto Bebas (JPG/JPEG):</label>
+        <input type="file" id="fotoInput" accept="image/jpeg, image/jpg">
+        
+        <label>Tulis Data Rahasia (Password/PIN/Teks):</label>
+        <textarea id="teksRahasia" placeholder="Contoh: Password email gw adalah 'Bintang123!'"></textarea>
+        
+        <button onclick="simpanTeksKeFoto()">Sembunyikan & Unduh Foto</button>
+    </div>
+
+    <!-- BAGIAN 2: BACA TEKS -->
+    <div class="box">
+        <h3>2. Ambil Teks dari Foto</h3>
+        <label>Pilih Foto yang Ada Teks Rahasianya:</label>
+        <input type="file" id="fotoBaca" accept="image/jpeg, image/jpg">
+        
+        <button class="decode-btn" onclick="bacaTeksDariFoto()">Ekstrak Teks Rahasia</button>
+        
+        <label>Hasil Teks Rahasia:</label>
+        <textarea id="teksHasil" readonly placeholder="Teks rahasia akan muncul di sini..." style="background: #f0f0f0;"></textarea>
+    </div>
+
+    <script>
+        // Penanda teks rahasia agar sistem tahu di mana teks dimulai
+        const TAG_MULAI = "###RAHASIA_START###";
+        const TAG_SELESAI = "###RAHASIA_END###";
+
+        async function simpanTeksKeFoto() {
+            const fileInput = document.getElementById('fotoInput').files[0];
+            const teks = document.getElementById('teksRahasia').value;
+
+            if (!fileInput || !teks) return alert("Pilih foto dan isi teks rahasianya dulu!");
+
+            const arrayBuffer = await fileInput.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+
+            // Cari tanda EOI (End of Image) untuk file JPG yaitu bita [0xFF, 0xD9]
+            let posisiEOI = -1;
+            for (let i = bytes.length - 2; i >= 0; i--) {
+                if (bytes[i] === 0xFF && bytes[i+1] === 0xD9) {
+                    posisiEOI = i + 2;
+                    break;
+                }
+            }
+
+            // Jika tidak ketemu EOI standard, kita tempel di paling ujung file asli
+            if (posisiEOI === -1) posisiEOI = bytes.length;
+
+            // Bungkus teks rahasia dengan tag penanda
+            const teksBungkus = TAG_MULAI + teks + TAG_SELESAI;
+            const teksBytes = new TextEncoder().encode(teksBungkus);
+
+            // Buat kontainer baru: gabungkan data foto (sampai EOI) + teks rahasia
+            const fotoBaruBytes = new Uint8Array(posisiEOI + teksBytes.length);
+            fotoBaruBytes.set(bytes.subarray(0, posisiEOI), 0);
+            fotoBaruBytes.set(teksBytes, posisiEOI);
+
+            // Unduh file baru hasil modifikasi
+            const blob = new Blob([fotoBaruBytes], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = "foto_berpintu_rahasia.jpg";
+            link.click();
+            
+            alert("Teks berhasil disimpan! Foto otomatis terunduh.");
+        }
+
+        async function bacaTeksDariFoto() {
+            const fileInput = document.getElementById('fotoBaca').files[0];
+            if (!fileInput) return alert("Pilih fotonya dulu bos!");
+
+            const arrayBuffer = await fileInput.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            
+            // Ubah seluruh bita menjadi teks string untuk dicari penandanya
+            const decoder = new TextDecoder();
+            const seluruhTeks = decoder.decode(bytes);
+
+            // Cari posisi tag penanda rahasia
+            const indeksMulai = seluruhTeks.indexOf(TAG_MULAI);
+            const indeksSelesai = seluruhTeks.indexOf(TAG_SELESAI);
+
+            if (indeksMulai === -1 || indeksSelesai === -1) {
+                document.getElementById('teksHasil').value = "";
+                return alert("Aman! Tidak ada teks rahasia terdeteksi di foto ini.");
+            }
+
+            // Ekstrak teks asli di antara penanda tersebut
+            const teksRahasiaAsli = seluruhTeks.substring(indeksMulai + TAG_MULAI.length, indeksSelesai);
+            document.getElementById('teksHasil').value = teksRahasiaAsli;
+        }
+    </script>
+</body>
+</html>

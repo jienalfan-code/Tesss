@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Ruang-Waktu 3D — Debu Kosmik</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;
+    font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#cfe6ff;
+    -webkit-user-select:none;user-select:none;}
+  canvas{display:block;touch-action:none;}
+  #hud{position:fixed;top:8px;left:10px;font-size:12px;line-height:1.5;
+       pointer-events:none;text-shadow:0 0 8px #000;opacity:.9}
+  #hud b{color:#7fd0ff;font-variant-numeric:tabular-nums;}
+  #panel{position:fixed;left:8px;right:8px;bottom:8px;
+    background:rgba(6,14,26,.82);border:1px solid rgba(90,150,220,.35);
+    border-radius:12px;padding:8px 10px;font-size:12px;
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
+  .row{display:flex;align-items:center;gap:8px;margin:5px 0;}
+  .row label{flex:0 0 92px;color:#8fc0ee;}
+  input[type=range]{flex:1;height:22px;accent-color:#4aa8ff;background:transparent;min-width:0;}
+  .val{flex:0 0 48px;text-align:right;color:#eaf6ff;font-variant-numeric:tabular-nums;}
+  button{background:rgba(40,110,190,.35);border:1px solid rgba(90,160,230,.6);
+    color:#dcefff;border-radius:8px;padding:7px 12px;font-size:12px;flex:1;}
+  button:active{background:rgba(70,150,240,.65);}
+  #hint{position:fixed;top:8px;right:10px;font-size:11px;color:#5c86ad;
+        text-align:right;line-height:1.4;pointer-events:none;text-shadow:0 0 8px #000;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div>Debu: <b id="nCount">0</b> · Benda masif: <b id="nPlanet">0</b></div>
+  <div>Massa total: <b id="mTot">0</b></div>
+  <div>Waktu: <b id="tSim">0</b> s · FPS: <b id="fps">0</b></div>
+</div>
+<div id="hint">geser = putar · cubit = zoom</div>
+
+<div id="panel">
+  <div class="row"><label>Debu awal</label>
+    <input id="sN" type="range" min="200" max="1500" step="50" value="1000">
+    <span class="val" id="vN">1000</span></div>
+  <div class="row"><label>Gravitasi</label>
+    <input id="sG" type="range" min="500" max="8000" step="100" value="3500">
+    <span class="val" id="vG">3500</span></div>
+  <div class="row"><label>Kecepatan</label>
+    <input id="sT" type="range" min="0" max="4" step="0.1" value="1">
+    <span class="val" id="vT">1.0×</span></div>
+  <div class="row">
+    <button id="btnReset">Reset Alam Semesta</button>
+    <button id="btnGrid">Grid: ON</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+'use strict';
+
+// Batas aman partikel untuk browser Android (mencegah freeze/NaN)
+const MAX_PARTICLES = 1500;
+
+const P = {
+  N: 1000,
+  G: 3500,         // Gravitasi kuat untuk membentuk gumpalan
+  eps: 4.0,        // Softening
+  R0: 2.0,         // Radius awal partikel diperbesar agar cepat bersentuhan
+  timeScale: 1.0,
+  maxSpeed: 600,
+  bounds: 2500,    // Batas terjauh alam semesta
+  spawnR: 900,     // Ruang awal yang cukup padat agar debu bisa bersentuhan
+  gridOn: true
+};
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({
+  canvas, antialias:false, powerPreference:'high-performance', alpha:false
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x01030a, 1);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 1, 12000);
+
+const cam = { theta: 0.9, phi: 1.12, dist: 2400 };
+
+// BACKGROUND BINTANG DIHAPUS TOTAL.
+
+const PX = new Float32Array(MAX_PARTICLES),
+      PY = new Float32Array(MAX_PARTICLES),
+      PZ = new Float32Array(MAX_PARTICLES),
+      VX = new Float32Array(MAX_PARTICLES),
+      VY = new Float32Array(MAX_PARTICLES),
+      VZ = new Float32Array(MAX_PARTICLES),
+      AX = new Float32Array(MAX_PARTICLES),
+      AY = new Float32Array(MAX_PARTICLES),
+      AZ = new Float32Array(MAX_PARTICLES),
+      MASS = new Float32Array(MAX_PARTICLES),
+      RAD  = new Float32Array(MAX_PARTICLES);
+
+const deadFlag = new Uint8Array(MAX_PARTICLES);
+const mergeList = [];
+let N = 0;
+let simTime = 0;
+
+const posArr  = new Float32Array(MAX_PARTICLES*3);
+const sizeArr = new Float32Array(MAX_PARTICLES);
+const colArr  = new Float32Array(MAX_PARTICLES*3);
+
+const geo = new THREE.BufferGeometry();
+const attrPos  = new THREE.BufferAttribute(posArr, 3);
+const attrSize = new THREE.BufferAttribute(sizeArr, 1);
+const attrCol  = new THREE.BufferAttribute(colArr, 3);
+geo.setAttribute('position', attrPos);
+geo.setAttribute('aSize',    attrSize);
+geo.setAttribute('aColor',   attrCol);
+geo.setDrawRange(0, 0);
+
+const uniforms = { uScale:{value:1}, uMin:{value:1.4} };
+
+const mat = new THREE.ShaderMaterial({
+  uniforms,
+  vertexShader: `
+    attribute float aSize;
+    attribute vec3  aColor;
+    uniform float uScale;
+    uniform float uMin;
+    varying vec3 vColor;
+    void main(){
+      vColor = aColor;
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      float ps = aSize * uScale / max(-mv.z, 0.1);
+      gl_PointSize = clamp(ps, uMin, 260.0);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    varying vec3 vColor;
+    void main(){
+      vec2 c = gl_PointCoord - vec2(0.5);
+      float d2 = dot(c,c);
+      if(d2 > 0.25) discard;
+      float a = smoothstep(0.25, 0.0, d2);
+      gl_FragColor = vec4(vColor, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  depthTest: true
+});
+
+const points = new THREE.Points(geo, mat);
+points.frustumCulled = false;
+scene.add(points);
+
+const GSEG = 24, GW = GSEG + 1, GRID_SIZE = 3000, GRID_Y = -800;
+const gridPosArr = new Float32Array(GW*GW*3);
+const gridIdx = [];
+(function buildGrid(){
+  const half = GRID_SIZE/2, step = GRID_SIZE/GSEG;
+  for(let z=0; z<GW; z++) for(let x=0; x<GW; x++){
+    const k = (z*GW + x)*3;
+    gridPosArr[k]   = -half + x*step;
+    gridPosArr[k+1] = GRID_Y;
+    gridPosArr[k+2] = -half + z*step;
+  }
+  for(let z=0; z<GW; z++) for(let x=0; x<GW; x++){
+    const a = z*GW + x;
+    if(x < GSEG) gridIdx.push(a, a+1);
+    if(z < GSEG) gridIdx.push(a, a+GW);
+  }
+})();
+const gridGeo = new THREE.BufferGeometry();
+gridGeo.setAttribute('position', new THREE.BufferAttribute(gridPosArr, 3));
+gridGeo.setIndex(gridIdx);
+const gridMesh = new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({
+  color: 0x2f6ea8, transparent: true, opacity: 0.35, depthWrite: false
+}));
+gridMesh.frustumCulled = false;
+scene.add(gridMesh);
+
+function resetUniverse(){
+  N = Math.min(P.N, MAX_PARTICLES);
+  const R = P.spawnR;
+
+  for(let i=0;i<N;i++){
+    PX[i] = (Math.random()*2 - 1) * R;
+    PY[i] = (Math.random()*2 - 1) * R;
+    PZ[i] = (Math.random()*2 - 1) * R;
+
+    VX[i] = (Math.random() - 0.5) * 2.0;
+    VY[i] = (Math.random() - 0.5) * 2.0;
+    VZ[i] = (Math.random() - 0.5) * 2.0;
+
+    MASS[i] = 1;
+    RAD[i]  = P.R0;
+  }
+
+  simTime = 0;
+  geo.setDrawRange(0, N);
+
+  const arr = gridGeo.attributes.position.array;
+  for(let k=0; k<GW*GW; k++) arr[k*3+1] = GRID_Y;
+  gridGeo.attributes.position.needsUpdate = true;
+}
+
+function stepPhysics(dt){
+  const G = P.G;
+  const eps2 = P.eps * P.eps;
+
+  AX.fill(0, 0, N); AY.fill(0, 0, N); AZ.fill(0, 0, N);
+  mergeList.length = 0;
+
+  for(let i=0;i<N;i++){
+    const xi = PX[i], yi = PY[i], zi = PZ[i];
+    const mi = MASS[i], ri = RAD[i];
+    let axi = 0, ayi = 0, azi = 0;
+
+    for(let j=i+1; j<N; j++){
+      const dx = PX[j]-xi, dy = PY[j]-yi, dz = PZ[j]-zi;
+      const r2 = dx*dx + dy*dy + dz*dz;
+      
+      // Cek tabrakan
+      const rs = ri + RAD[j];
+      if(r2 < rs*rs){ mergeList.push(i, j); continue; }
+
+      const r = Math.sqrt(r2);
+      
+      // GRAVITASI DENGAN BATAS JARAK LOKAL (CUTOFF)
+      // Debu hanya tertarik jika berada dalam radius 800 unit.
+      // Ini mencegah seluruh alam semesta menyatu jadi 1.
+      if (r < 800) {
+        let f = G / (r2 + eps2);
+        // Pelemahan halus di dekat batas jarak
+        if (r > 600) {
+           f *= (1.0 - (r - 600) / 200.0);
+        }
+        
+        const f3 = f * (1 / Math.sqrt(r2 + eps2));
+        axi += dx * f3 * MASS[j]; ayi += dy * f3 * MASS[j]; azi += dz * f3 * MASS[j];
+        AX[j] -= dx * f3 * mi;    AY[j] -= dy * f3 * mi;    AZ[j] -= dz * f3 * mi;
+      }
+    }
+    AX[i] += axi; AY[i] += ayi; AZ[i] += azi;
+  }
+
+  const maxV2 = P.maxSpeed*P.maxSpeed;
+  const R = P.bounds, R2 = R*R;
+
+  for(let i=0;i<N;i++){
+    let vx = VX[i] + AX[i]*dt;
+    let vy = VY[i] + AY[i]*dt;
+    let vz = VZ[i] + AZ[i]*dt;
+
+    // Cek NaN (Proteksi agar simulasi tidak macet)
+    if (isNaN(vx) || isNaN(vy) || isNaN(vz)) {
+       vx = 0; vy = 0; vz = 0;
+    }
+
+    // Pegas kosmologis (menahan partikel di dalam batas)
+    const d2 = PX[i]*PX[i] + PY[i]*PY[i] + PZ[i]*PZ[i];
+    if(d2 > R2){
+      const d = Math.sqrt(d2) || 1;
+      const k = -0.2*(d - R)/d;
+      vx += PX[i]*k*dt; vy += PY[i]*k*dt; vz += PZ[i]*k*dt;
+    }
+
+    const sp2 = vx*vx + vy*vy + vz*vz;
+    if(sp2 > maxV2){
+      const sc = P.maxSpeed/Math.sqrt(sp2);
+      vx *= sc; vy *= sc; vz *= sc;
+    }
+
+    VX[i] = vx; VY[i] = vy; VZ[i] = vz;
+    PX[i] += vx*dt; PY[i] += vy*dt; PZ[i] += vz*dt;
+  }
+
+  if(mergeList.length) processMerges();
+}
+
+function processMerges(){
+  deadFlag.fill(0, 0, N);
+
+  for(let k=0; k<mergeList.length; k+=2){
+    let a = mergeList[k], b = mergeList[k+1];
+    if(deadFlag[a] || deadFlag[b]) continue;
+    if(MASS[a] < MASS[b]){ const t = a; a = b; b = t; }
+
+    const ma = MASS[a], mb = MASS[b], m = ma + mb;
+
+    PX[a] = (PX[a]*ma + PX[b]*mb)/m;
+    PY[a] = (PY[a]*ma + PY[b]*mb)/m;
+    PZ[a] = (PZ[a]*ma + PZ[b]*mb)/m;
+    VX[a] = (VX[a]*ma + VX[b]*mb)/m;
+    VY[a] = (VY[a]*ma + VY[b]*mb)/m;
+    VZ[a] = (VZ[a]*ma + VZ[b]*mb)/m;
+
+    MASS[a] = m;
+    RAD[a]  = P.R0 * Math.cbrt(m);
+    deadFlag[b] = 1;
+  }
+
+  let w = 0;
+  for(let i=0;i<N;i++){
+    if(deadFlag[i]) continue;
+    if(w !== i){
+      PX[w]=PX[i]; PY[w]=PY[i]; PZ[w]=PZ[i];
+      VX[w]=VX[i]; VY[w]=VY[i]; VZ[w]=VZ[i];
+      MASS[w]=MASS[i]; RAD[w]=RAD[i];
+    }
+    w++;
+  }
+  N = w;
+}
+
+function updateRenderBuffers(){
+  for(let i=0;i<N;i++){
+    const o = i*3;
+    posArr[o]   = PX[i];
+    posArr[o+1] = PY[i];
+    posArr[o+2] = PZ[i];
+
+    const m = MASS[i];
+    sizeArr[i] = 0.7 + 1.7*Math.cbrt(m);
+
+    const t = Math.min(1, Math.log10(1 + m)/3.0);
+    let r,g,b;
+    if(t < 0.5){
+      const u = t*2;
+      r = 0.45 + u*0.55;
+      g = 0.70 + u*0.15;
+      b = 1.00 - u*0.45;
+    } else {
+      const u = (t-0.5)*2;
+      r = 1.00;
+      g = 0.85 - u*0.32;
+      b = 0.55 - u*0.36;
+    }
+    colArr[o] = r; colArr[o+1] = g; colArr[o+2] = b;
+  }
+
+  attrPos.needsUpdate  = true;
+  attrSize.needsUpdate = true;
+  attrCol.needsUpdate  = true;
+  geo.setDrawRange(0, N);
+}
+
+function updateGrid(){
+  const arr = gridGeo.attributes.position.array;
+  for(let k=0; k<GW*GW; k++){
+    const x = arr[k*3], z = arr[k*3+2];
+    let pot = 0;
+    for(let i=0;i<N;i++){
+      const dx = PX[i]-x, dz = PZ[i]-z;
+      const r2 = dx*dx + dz*dz;
+      const r = Math.sqrt(r2);
+      
+      // Grid juga terkena cutoff, jadi hanya melengkung di area lokal
+      if (r < 1000) {
+        let weight = 1.0;
+        if (r > 800) weight = 1.0 - (r - 800) / 200.0;
+        pot += (MASS[i] * weight) / Math.sqrt(r2 + 600);
+      }
+    }
+    let dent = 65*Math.pow(pot, 0.6);
+    if(dent > 250) dent = 250;
+    arr[k*3+1] = GRID_Y - dent;
+  }
+  gridGeo.attributes.position.needsUpdate = true;
+}
+
+const pointers = new Map();
+let lastPinch = 0;
+
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if(pointers.size === 2) lastPinch = 0;
+});
+canvas.addEventListener('pointerup', e => {
+  pointers.delete(e.pointerId);
+  lastPinch = 0;
+});
+canvas.addEventListener('pointercancel', e => {
+  pointers.delete(e.pointerId);
+  lastPinch = 0;
+});
+canvas.addEventListener('pointermove', e => {
+  const p = pointers.get(e.pointerId);
+  if(!p) return;
+  const dx = e.clientX - p.x, dy = e.clientY - p.y;
+  p.x = e.clientX; p.y = e.clientY;
+
+  if(pointers.size === 1){
+    cam.theta -= dx*0.006;
+    cam.phi   -= dy*0.006;
+    cam.phi = Math.max(0.12, Math.min(Math.PI-0.12, cam.phi));
+  } else if(pointers.size === 2){
+    const a = [...pointers.values()];
+    const d = Math.hypot(a[0].x-a[1].x, a[0].y-a[1].y);
+    if(lastPinch > 0){
+      cam.dist *= lastPinch/d;
+      cam.dist = Math.max(200, Math.min(6000, cam.dist));
+    }
+    lastPinch = d;
+  }
+}, {passive:true});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  cam.dist *= Math.exp(e.deltaY*0.0012);
+  cam.dist = Math.max(200, Math.min(6000, cam.dist));
+}, {passive:false});
+
+function updateCamera(){
+  const {theta, phi, dist} = cam;
+  camera.position.set(
+    dist*Math.sin(phi)*Math.sin(theta),
+    dist*Math.cos(phi),
+    dist*Math.sin(phi)*Math.cos(theta)
+  );
+  camera.lookAt(0,0,0);
+}
+
+function onResize(){
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w/h;
+  camera.updateProjectionMatrix();
+  uniforms.uScale.value =
+    renderer.domElement.height / (2*Math.tan(THREE.MathUtils.degToRad(camera.fov)/2));
+}
+window.addEventListener('resize', onResize);
+window.addEventListener('orientationchange', () => setTimeout(onResize, 200));
+
+const elN = document.getElementById('sN'), vN = document.getElementById('vN');
+const elG = document.getElementById('sG'), vG = document.getElementById('vG');
+const elT = document.getElementById('sT'), vT = document.getElementById('vT');
+const nCount = document.getElementById('nCount');
+const nPlanet = document.getElementById('nPlanet');
+const mTot = document.getElementById('mTot');
+const tSimEl = document.getElementById('tSim');
+const fpsEl = document.getElementById('fps');
+const btnGrid = document.getElementById('btnGrid');
+
+elN.addEventListener('input', () => { vN.textContent = elN.value; });
+elN.addEventListener('change', () => { P.N = +elN.value; resetUniverse(); });
+elG.addEventListener('input', () => { P.G = +elG.value; vG.textContent = elG.value; });
+elT.addEventListener('input', () => {
+  P.timeScale = +elT.value;
+  vT.textContent = (+elT.value).toFixed(1) + '×';
+});
+document.getElementById('btnReset').addEventListener('click', resetUniverse);
+btnGrid.addEventListener('click', () => {
+  P.gridOn = !P.gridOn;
+  gridMesh.visible = P.gridOn;
+  btnGrid.textContent = 'Grid: ' + (P.gridOn ? 'ON' : 'OFF');
+});
+
+let lastT = performance.now();
+let frameCount = 0, fpsAccum = 0, hudAccum = 0, gridTick = 0;
+
+function loop(now){
+  requestAnimationFrame(loop);
+
+  const realDt = Math.min((now - lastT)/1000, 0.06);
+  lastT = now;
+
+  const dtTotal = realDt * P.timeScale;
+  if(dtTotal > 0 && N > 0){
+    const steps = Math.min(5, Math.max(1, Math.ceil(dtTotal/0.025)));
+    const h = dtTotal/steps;
+    for(let s=0; s<steps; s++) stepPhysics(h);
+    simTime += dtTotal;
+  }
+
+  updateRenderBuffers();
+
+  if(P.gridOn && (gridTick++ & 3) === 0) updateGrid();
+
+  updateCamera();
+  renderer.render(scene, camera);
+
+  frameCount++; fpsAccum += realDt; hudAccum += realDt;
+  if(hudAccum > 0.4){
+    fpsEl.textContent = Math.round(frameCount/fpsAccum);
+    frameCount = 0; fpsAccum = 0; hudAccum = 0;
+
+    let big = 0, total = 0;
+    for(let i=0;i<N;i++){
+      total += MASS[i];
+      if(MASS[i] > 50) big++;
+    }
+    nCount.textContent  = N;
+    nPlanet.textContent = big;
+    mTot.textContent    = Math.round(total);
+    tSimEl.textContent  = simTime.toFixed(0);
+  }
+}
+
+onResize();
+resetUniverse();
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>

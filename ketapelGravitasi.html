@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ketapel Gravitasi · Simulasi Ruang-Waktu</title>
+<style>
+:root{--bg:#f4f6fb;--fg:#14203a;--mut:#5b6785;--card:#fff;--bd:#d5dbea;--ac:#2563eb;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b1020;--fg:#e6ebff;--mut:#97a3c7;--card:#141b33;--bd:#2a3558;--ac:#60a5fa}}
+:root[data-theme="dark"]{--bg:#0b1020;--fg:#e6ebff;--mut:#97a3c7;--card:#141b33;--bd:#2a3558;--ac:#60a5fa}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
+#stage{flex:1;position:relative;min-height:0}
+canvas{width:100%;height:100%;display:block;touch-action:none;background:#060a1c}
+#hud{position:absolute;left:10px;top:8px;font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#bfe3ff;pointer-events:none;white-space:pre}
+#panel{background:var(--card);border-top:1px solid var(--bd);padding:8px 12px 10px;max-height:44vh;overflow:auto}
+.btns{display:flex;gap:8px;margin-bottom:6px}
+button{flex:1;padding:9px 6px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--fg);font:600 14px inherit;cursor:pointer}
+button.p{background:var(--ac);border-color:var(--ac);color:#fff}
+summary{color:var(--mut);cursor:pointer;padding:4px 0;font-weight:600}
+h3{margin:10px 0 4px;font-size:13px}
+.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px 14px}
+label{display:grid;grid-template-columns:1fr auto;font-size:12px;color:var(--mut)}
+label input{grid-column:1/3;width:100%;margin:2px 0}
+.ck{display:flex;gap:14px;margin-top:8px;font-size:13px;flex-wrap:wrap}
+.ck label{display:flex;gap:6px;align-items:center;color:var(--fg)}
+.ck input{width:auto;margin:0}
+input:disabled{opacity:.35}
+small{display:block;margin-top:10px;color:var(--mut);font-size:11px}
+</style></head><body>
+<div id="stage"><canvas id="cv"></canvas><div id="hud"></div></div>
+<div id="panel">
+ <div class="btns"><button class="p" id="go">▶ Luncurkan</button><button id="rs">↺ Reset</button></div>
+ <details open><summary>Pengaturan benda &amp; simulasi</summary>
+  <div id="ui"></div>
+  <div class="ck">
+    <label><input type="checkbox" id="sizeLink" checked> Pengaturan Ukuran (ON: ukuran↔massa)</label>
+    <label><input type="checkbox" id="pA" checked> Garis prediksi/vektor A</label>
+    <label><input type="checkbox" id="pB" checked> Garis prediksi/vektor B</label>
+    <label><input type="checkbox" id="trail" checked> Jejak lintasan</label>
+    <label><input type="checkbox" id="lock"> Kunci A tetap diam</label>
+  </div>
+  <small>Seret layar untuk memutar kamera, cubit atau scroll untuk zoom. Posisi awal, kecepatan, dan arah berlaku setelah Reset; massa dan ukuran bisa diubah saat simulasi berjalan. <b>Pengaturan Ukuran:</b> ON = ukuran visual terhubung otomatis dengan massa (planet lebih besar = lebih berat, jika diperbesar massanya ikut naik). OFF = ukuran terkunci statis, namun massa tetap bisa diubah independen tanpa memengaruhi visual. Garis prediksi/vektor per planet bisa dinyalakan/dimatikan secara independen via toggle A dan B. Pusat planet dikunci ke garis horizon: mengubah ukuran tidak menggeser posisi pusat pada sumbu X, Y, maupun Z.</small>
+ </details>
+</div>
+<script>
+const $=s=>document.querySelector(s),cv=$('#cv'),ctx=cv.getContext('2d');
+
+// ============ KONSTANTA VOLUME-WEIGHT COUPLING ============
+// Hubungan ukuran ↔ massa saat toggle ON.  s = 0.3 * cbrt(m),  m = (s/0.3)^3
+const SIZE_K = 0.3;
+const SIZE_MIN = 0.15, SIZE_MAX = 2.0;
+const MASS_MIN = 0.1,  MASS_MAX = 300;
+const sizeToMass = s => Math.pow(s / SIZE_K, 3);
+const massToSize = m => SIZE_K * Math.cbrt(m);
+
+// ============ KONSTANTA HORIZON LOCKING ============
+// Offset Y yang TETAP dan TIDAK bergantung pada ukuran planet.
+// Ini adalah "garis horizon" tempat pusat planet dikunci — (lihat draw())
+const HORIZON_OFFSET = 0.5;
+
+const CFG=[
+ ['Benda A (diam di tengah)',[
+   ['mA','Massa',MASS_MIN,MASS_MAX,.1,1],
+   ['sA','Ukuran',SIZE_MIN,SIZE_MAX,.05,0.30],
+   ['xA','Posisi X',-15,15,.5,0],
+   ['zA','Posisi Z',-15,15,.5,0]
+ ]],
+ ['Benda B (dilempar)',[
+   ['mB','Massa',MASS_MIN,MASS_MAX,.1,8],
+   ['sB','Ukuran',SIZE_MIN,SIZE_MAX,.05,0.60],
+   ['xB','Posisi awal X',-20,20,.5,-19],
+   ['zB','Posisi awal Z',-20,20,.5,9],
+   ['vB','Kecepatan',0,12,.1,3.8],
+   ['aB','Arah (°)',0,360,1,0]
+ ]],
+ ['Simulasi',[['ts','Kecepatan waktu',.2,5,.1,1]]]];
+
+const P={lock:false,trail:true,sizeLink:true,pA:true,pB:true};
+CFG.forEach(([t,L])=>{
+ const g=document.createElement('div');
+ g.innerHTML=`<h3>${t}</h3><div class="g"></div>`;
+ L.forEach(([id,lab,mn,mx,st,df])=>{
+   P[id]=df;
+   const l=document.createElement('label');
+   l.innerHTML=`<span>${lab}</span><b id="v${id}">${df}</b><input type="range" id="${id}" min="${mn}" max="${mx}" step="${st}" value="${df}">`;
+   g.lastChild.appendChild(l);
+ });
+ $('#ui').appendChild(g);
+});
+
+const G=1,DT=.01,EPS=.6,K=.15,N=40,EXT=22,SM=44;
+let S,started=false,running=false,hit=false,T=0,tA=[],tB=[],predA=[],predB=[],fr=0;
+let yaw=.45,pitch=.65,dist=64,W=1,Ht=1;
+
+const mk=()=>{
+ const a=P.aB*Math.PI/180;
+ return {
+   A:{x:P.xA,z:P.zA,vx:0,vz:0},
+   B:{x:P.xB,z:P.zB,vx:P.vB*Math.cos(a),vz:P.vB*Math.sin(a)}
+ };
+};
+
+function acc(s){
+ const dx=s.B.x-s.A.x,dz=s.B.z-s.A.z,r2=dx*dx+dz*dz+EPS*EPS,i=G/(r2*Math.sqrt(r2));
+ return [dx*i*P.mB,dz*i*P.mB,-dx*i*P.mA,-dz*i*P.mA];
+}
+
+function step(s){
+ const k=P.lock?0:1;let a=acc(s);
+ s.A.vx+=a[0]*DT/2*k;s.A.vz+=a[1]*DT/2*k;
+ s.B.vx+=a[2]*DT/2;s.B.vz+=a[3]*DT/2;
+ s.A.x+=s.A.vx*DT;s.A.z+=s.A.vz*DT;
+ s.B.x+=s.B.vx*DT;s.B.z+=s.B.vz*DT;
+ a=acc(s);
+ s.A.vx+=a[0]*DT/2*k;s.A.vz+=a[1]*DT/2*k;
+ s.B.vx+=a[2]*DT/2;s.B.vz+=a[3]*DT/2;
+}
+
+// Tabrakan memakai UKURAN (sA/sB), bukan radius lama.
+const dAB=s=>Math.hypot(s.B.x-s.A.x,s.B.z-s.A.z);
+const cp=o=>({A:{...o.A},B:{...o.B}});
+
+function predict(){
+ const s=started?cp(S):mk();
+ predA=[[s.A.x,s.A.z]];predB=[[s.B.x,s.B.z]];
+ for(let i=1;i<=2000;i++){
+   step(s);
+   if(i%10==0){predA.push([s.A.x,s.A.z]);predB.push([s.B.x,s.B.z]);}
+   if(dAB(s)<P.sA+P.sB||Math.abs(s.B.x)>45||Math.abs(s.B.z)>45){
+     predA.push([s.A.x,s.A.z]);predB.push([s.B.x,s.B.z]);break;
+   }
+ }
+}
+
+// q() memakai e TETAP (tidak lagi 1.3*r+0.5).
+// Ini penting agar dep() tidak berubah saat ukuran planet berubah,
+// sehingga posisi Y pusat planet benar-benar terkunci saat resize.
+const q=(x,z,b,m)=>{
+ const dx=x-b.x,dz=z-b.z,e=1.0;
+ return m/Math.sqrt(dx*dx+dz*dz+e*e);
+};
+const dep=(x,z)=>K*(q(x,z,S.A,P.mA)+q(x,z,S.B,P.mB));
+
+function pj(x,y,z){
+ const c=Math.cos(yaw),s=Math.sin(yaw);
+ const x1=x*c-z*s,z1=x*s+z*c;
+ const cp=Math.cos(pitch),sp=Math.sin(pitch);
+ const y1=y*cp+z1*sp,z2=z1*cp-y*sp;
+ const d=z2+dist;
+ const f=Math.min(W,Ht*1.6)*1.05/d;
+ return [W/2+x1*f,Ht/2-y1*f,f,d];
+}
+
+function drawGrid(){
+ const bk=Array.from({length:8},()=>new Path2D());
+ for(let dir=0;dir<2;dir++)for(let i=0;i<=N;i++){
+   const c=-EXT+2*EXT*i/N;let pv=null;
+   for(let j=0;j<=SM;j++){
+     const t=-EXT+2*EXT*j/SM,x=dir?c:t,z=dir?t:c,d=dep(x,z),p=pj(x,-d,z);
+     if(pv){const b=Math.min(7,((d+pv.d)*.45)|0);bk[b].moveTo(pv.p[0],pv.p[1]);bk[b].lineTo(p[0],p[1]);}
+     pv={p,d};
+   }
+ }
+ ctx.lineWidth=1;
+ bk.forEach((p,b)=>{ctx.strokeStyle=`hsla(${210+b*16},85%,${52+b*4}%,${.3+b*.08})`;ctx.stroke(p);});
+}
+
+function trl(a,col){
+ if(a.length<2)return;
+ ctx.beginPath();
+ a.forEach((t,i)=>{const p=pj(t[0],t[1],t[2]);i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]);});
+ ctx.strokeStyle=col;ctx.lineWidth=2;ctx.stroke();
+}
+
+// ============ VEKTOR KECEPATAN (per planet) ============
+function vArrow(planet, color){
+ const o = planet==='A' ? S.A : S.B;
+ const v = Math.hypot(o.vx, o.vz);
+ if(v < 0.02) return;
+ const len = Math.min(6, v * 1.2);
+ const dx = o.vx/v, dz = o.vz/v;
+ // Titik pangkal panah memakai HORIZON_OFFSET yang sama dengan pusat planet
+ const y = -dep(o.x,o.z) + HORIZON_OFFSET;
+ const tail = pj(o.x, y, o.z);
+ const head = pj(o.x + dx*len, y, o.z + dz*len);
+ ctx.beginPath();
+ ctx.moveTo(tail[0],tail[1]);
+ ctx.lineTo(head[0],head[1]);
+ const ang = Math.atan2(head[1]-tail[1], head[0]-tail[0]);
+ const ah = 7;
+ ctx.moveTo(head[0],head[1]);
+ ctx.lineTo(head[0]-ah*Math.cos(ang-0.4), head[1]-ah*Math.sin(ang-0.4));
+ ctx.moveTo(head[0],head[1]);
+ ctx.lineTo(head[0]-ah*Math.cos(ang+0.4), head[1]-ah*Math.sin(ang+0.4));
+ ctx.strokeStyle = color;
+ ctx.lineWidth = 2.2;
+ ctx.stroke();
+}
+
+// Garis prediksi dashed — per planet, memakai offset yang sama (HORIZON_OFFSET)
+function dpred(a, offset, col){
+ if(a.length<2)return;
+ ctx.setLineDash([4,6]);
+ ctx.beginPath();
+ a.forEach((t,i)=>{
+   const p=pj(t[0], -dep(t[0],t[1])+offset, t[1]);
+   i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]);
+ });
+ ctx.strokeStyle=col;ctx.lineWidth=1.8;ctx.stroke();
+ ctx.setLineDash([]);
+ const e=a[a.length-1],p=pj(e[0], -dep(e[0],e[1])+offset, e[1]);
+ ctx.beginPath();ctx.arc(p[0],p[1],4,0,7);ctx.fillStyle=col;ctx.fill();
+}
+
+function draw(){
+ ctx.fillStyle='#060a1c';ctx.fillRect(0,0,W,Ht);
+ drawGrid();
+ const A=S.A,B=S.B;
+
+ if(P.trail){
+   trl(tA,'rgba(251,191,36,.75)');
+   trl(tB,'rgba(34,211,238,.9)');
+ }
+
+ // ============ GARIS PREDIKSI/VEKTOR INDEPENDEN PER PLANET ============
+ // pA mengontrol garis + panah planet A saja; pB mengontrol planet B saja.
+ if(P.pA) dpred(predA, HORIZON_OFFSET, '#fcd34d');
+ if(P.pB) dpred(predB, HORIZON_OFFSET, '#67e8f9');
+ if(P.pA) vArrow('A', '#fbbf24');
+ if(P.pB) vArrow('B', '#67e8f9');
+
+ // ============ HORIZON POSITION LOCKING ============
+ // Pusat planet SELALU berada di Y = -dep(x,z) + HORIZON_OFFSET.
+ // HORIZON_OFFSET adalah KONSTANTA, dan dep() tidak lagi bergantung pada
+ // ukuran planet (q() memakai e=1.0 tetap). Maka mengubah ukuran planet
+ // TIDAK menggeser pusat planet pada sumbu X, Y, maupun Z.
+ [[A,P.sA,'#fbbf24','#92400e','A'],[B,P.sB,'#67e8f9','#155e75','B']]
+   .map(([o,r,c1,c2,n])=>({
+     p:pj(o.x, -dep(o.x,o.z) + HORIZON_OFFSET, o.z),
+     r, c1, c2, n
+   }))
+   .sort((u,v)=>v.p[3]-u.p[3])
+   .forEach(({p,r,c1,c2,n})=>{
+     const rr=Math.max(3, r * p[2]);
+     const g=ctx.createRadialGradient(p[0]-rr*.35,p[1]-rr*.35,rr*.1,p[0],p[1],rr);
+     g.addColorStop(0,'#fff');g.addColorStop(.35,c1);g.addColorStop(1,c2);
+     ctx.shadowColor=c1;ctx.shadowBlur=14;ctx.fillStyle=g;
+     ctx.beginPath();ctx.arc(p[0],p[1],rr,0,7);ctx.fill();
+     ctx.shadowBlur=0;
+     ctx.fillStyle='#fff';ctx.font='bold 11px system-ui';
+     ctx.textAlign='center';ctx.fillText(n,p[0],p[1]-rr-5);
+   });
+
+ const st = hit ? 'Tabrakan!' : !started ? 'Siap: atur lalu tekan Luncurkan' : running ? 'Berjalan' : 'Dijeda';
+ $('#hud').textContent = `${st}\nt = ${T.toFixed(1)}   jarak A–B = ${dAB(S).toFixed(1)}\n`
+   + `v(A) = ${Math.hypot(A.vx,A.vz).toFixed(2)}   v(B) = ${Math.hypot(B.vx,B.vz).toFixed(2)}\n`
+   + `ukuran A = ${P.sA.toFixed(2)}   ukuran B = ${P.sB.toFixed(2)}`;
+}
+
+function loop(){
+ if(running&&!hit){
+   const n=Math.ceil(P.ts*3);
+   for(let i=0;i<n;i++){
+     step(S);T+=DT;
+     if(dAB(S)<P.sA+P.sB){hit=true;running=false;btn();break;}
+   }
+   const A=S.A,B=S.B;
+   // Trail memakai HORIZON_OFFSET (fixed) agar jejak tidak melompat saat ukuran berubah.
+   tA.push([A.x, -dep(A.x,A.z)+HORIZON_OFFSET, A.z]);
+   tB.push([B.x, -dep(B.x,B.z)+HORIZON_OFFSET, B.z]);
+   if(tA.length>900){tA.shift();tB.shift();}
+   if(++fr%6==0) predict();
+ }
+ draw();
+ requestAnimationFrame(loop);
+}
+
+const btn=()=>{$('#go').textContent=running?'⏸ Jeda':started&&!hit?'▶ Lanjut':'▶ Luncurkan';};
+
+function reset(){started=running=hit=false;T=0;tA=[];tB=[];S=mk();predict();btn();}
+$('#go').onclick=()=>{if(hit)return;if(!started)started=true;running=!running;btn();};
+$('#rs').onclick=reset;
+
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+// ============ UKURAN ↔ MASSA (COUPLING) ============
+// Saat sizeLink ON:  ukuran ↔ massa dua-arah (besar → berat).
+// Saat sizeLink OFF: slider ukuran DINONAKTIFKAN (terkunci), massa bebas.
+function applySizeLink(){
+  $('#sA').disabled = !P.sizeLink;
+  $('#sB').disabled = !P.sizeLink;
+}
+
+$('#panel').addEventListener('input', e=>{
+ const t=e.target;
+ if(t.type==='range'){
+   P[t.id]=+t.value;
+   $('#v'+t.id).textContent=t.value;
+
+   // ---- Coupling dua-arah saat sizeLink ON ----
+   if(P.sizeLink){
+     if(t.id==='sA'){
+       P.mA = clamp(sizeToMass(P.sA), MASS_MIN, MASS_MAX);
+       $('#mA').value = P.mA;
+       $('#vmA').textContent = P.mA.toFixed(2);
+     } else if(t.id==='sB'){
+       P.mB = clamp(sizeToMass(P.sB), MASS_MIN, MASS_MAX);
+       $('#mB').value = P.mB;
+       $('#vmB').textContent = P.mB.toFixed(2);
+     } else if(t.id==='mA'){
+       P.sA = clamp(massToSize(P.mA), SIZE_MIN, SIZE_MAX);
+       $('#sA').value = P.sA;
+       $('#vsA').textContent = P.sA.toFixed(2);
+     } else if(t.id==='mB'){
+       P.sB = clamp(massToSize(P.mB), SIZE_MIN, SIZE_MAX);
+       $('#sB').value = P.sB;
+       $('#vsB').textContent = P.sB.toFixed(2);
+     }
+   }
+ } else if(t.type==='checkbox'){
+   P[t.id]=t.checked;
+   if(t.id==='sizeLink'){
+     // Saat toggle di-ON-kan, sinkronkan ukuran dari massa saat ini.
+     // Saat OFF, ukuran dibiarkan di nilai terakhir (terkunci).
+     if(P.sizeLink){
+       P.sA = clamp(massToSize(P.mA), SIZE_MIN, SIZE_MAX);
+       P.sB = clamp(massToSize(P.mB), SIZE_MIN, SIZE_MAX);
+       $('#sA').value = P.sA; $('#vsA').textContent = P.sA.toFixed(2);
+       $('#sB').value = P.sB; $('#vsB').textContent = P.sB.toFixed(2);
+     }
+     applySizeLink();
+   }
+ }
+
+ if(!started) S=mk();
+ predict();
+});
+
+applySizeLink();  // inisialisasi status enable/disable slider ukuran
+
+const ptr=new Map();let pd=0;
+const pinch=()=>{if(ptr.size<2)return 0;const[a,b]=[...ptr.values()];return Math.hypot(a[0]-b[0],a[1]-b[1]);};
+cv.onpointerdown=e=>{cv.setPointerCapture(e.pointerId);ptr.set(e.pointerId,[e.clientX,e.clientY]);pd=pinch();};
+cv.onpointermove=e=>{
+ const o=ptr.get(e.pointerId);if(!o)return;
+ ptr.set(e.pointerId,[e.clientX,e.clientY]);
+ if(ptr.size===1){
+   yaw-=(e.clientX-o[0])*.008;
+   pitch=Math.max(.1,Math.min(1.5,pitch+(e.clientY-o[1])*.006));
+ } else {
+   const d=pinch();
+   if(pd&&d) dist=Math.max(20,Math.min(140,dist*pd/d));
+   pd=d;
+ }
+};
+cv.onpointerup=cv.onpointercancel=e=>{ptr.delete(e.pointerId);pd=0;};
+cv.onwheel=e=>{e.preventDefault();dist=Math.max(20,Math.min(140,dist*(1+e.deltaY*.001)));};
+
+new ResizeObserver(()=>{
+ const d=devicePixelRatio||1;
+ W=cv.clientWidth;Ht=cv.clientHeight;
+ cv.width=W*d;cv.height=Ht*d;
+ ctx.setTransform(d,0,0,d,0,0);
+}).observe(cv);
+
+reset();loop();
+</script></body></html>

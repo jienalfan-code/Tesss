@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Black Hole 3D — Volumetric WebGL</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;background:#000;overflow:hidden;
+            -webkit-tap-highlight-color:transparent;
+            -webkit-touch-callout:none;user-select:none}
+  #c{display:block;width:100%;height:100%;touch-action:none;background:#000}
+  #hud{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);
+       left:calc(env(safe-area-inset-left,0px) + 12px);
+       font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;
+       color:#8fa6c0;text-shadow:0 0 8px #000;pointer-events:none;
+       opacity:.85;letter-spacing:.3px;white-space:pre}
+  #hud b{color:#d8e6ff}
+  #err{position:fixed;inset:0;display:none;place-items:center;
+       color:#ff8080;font:14px ui-monospace,monospace;text-align:center;padding:24px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="err">WebGL tidak tersedia.</div>
+
+<script>
+(() => {
+"use strict";
+
+const canvas = document.getElementById('c');
+const hud    = document.getElementById('hud');
+const errBox = document.getElementById('err');
+
+const gl = canvas.getContext('webgl', {
+  alpha:false, antialias:false, depth:false, stencil:false,
+  premultipliedAlpha:false, preserveDrawingBuffer:false,
+  powerPreference:'high-performance'
+}) || canvas.getContext('experimental-webgl');
+
+if (!gl){ errBox.style.display='grid'; return; }
+
+/* ===================== SHADER ===================== */
+
+const VERT = `
+attribute vec2 aPos;
+void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }
+`;
+
+const FRAG = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2  uRes;
+uniform float uTime;
+uniform vec3  uCamPos;
+uniform vec3  uCamTarget;
+uniform float uFocal;
+uniform int   uSteps;
+
+const int MAXSTEPS = 220;
+
+/* ---- hashes ---- */
+float hash21(vec2 p){
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+float hash31(vec3 p){
+  p = fract(p * 0.3183099 + 0.1);
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+/* ---- 3D value noise (1 octave — murah) ---- */
+float noise3(vec3 x){
+  vec3 i = floor(x);
+  vec3 f = fract(x);
+  f = f*f*(3.0 - 2.0*f);
+  float a = hash31(i + vec3(0.0,0.0,0.0));
+  float b = hash31(i + vec3(1.0,0.0,0.0));
+  float c = hash31(i + vec3(0.0,1.0,0.0));
+  float d = hash31(i + vec3(1.0,1.0,0.0));
+  float e = hash31(i + vec3(0.0,0.0,1.0));
+  float f1= hash31(i + vec3(1.0,0.0,1.0));
+  float g = hash31(i + vec3(0.0,1.0,1.0));
+  float h = hash31(i + vec3(1.0,1.0,1.0));
+  return mix(
+    mix(mix(a,b,f.x), mix(c,d,f.x), f.y),
+    mix(mix(e,f1,f.x), mix(g,h,f.x), f.y),
+    f.z);
+}
+
+/* ---- bintang 3D sejati (tanpa distorsi kutub) ---- */
+vec3 starfield(vec3 rd){
+  vec3 col = vec3(0.0);
+  for (int L = 0; L < 3; L++){
+    float R = 70.0 + float(L) * 35.0;
+    float sc = 0.45 + float(L) * 0.12;
+    vec3 p = rd * R;
+    vec3 id = floor(p * sc);
+    vec3 f = fract(p * sc) - 0.5;
+    float h = hash31(id + float(L) * 137.0);
+    if (h < 0.905 + float(L) * 0.008) continue;
+    vec3 off = vec3(
+      hash31(id + vec3(1.0,0.0,0.0)),
+      hash31(id + vec3(0.0,1.0,0.0)),
+      hash31(id + vec3(0.0,0.0,1.0))
+    ) - 0.5;
+    float d = length(f - off * 0.5);
+    float b = smoothstep(0.11 - float(L) * 0.015, 0.0, d);
+    float tw = 0.72 + 0.28 * sin(uTime * 2.2 + h * 141.0);
+    vec3 tint = mix(vec3(1.0,0.96,0.88), vec3(0.70,0.82,1.0), fract(h * 7.3));
+    tint = mix(tint, vec3(1.0,0.82,0.62), fract(h * 13.7));
+    col += tint * b * tw * (0.55 + 0.45 * fract(h * 31.0)) * (1.0 - float(L) * 0.22);
+  }
+  return col;
+}
+
+/* ---- piringan akresi VOLUMETRIK ---- */
+vec4 sampleVolume(vec3 p, vec3 v){
+  float rxz = length(p.xz);
+  if (rxz < 2.6 || rxz > 20.0) return vec4(0.0);
+
+  /* ketebalan vertikal tumbuh ke luar */
+  float H = 0.10 + 0.055 * rxz;
+  float yf = p.y / H;
+  float vert = exp(-yf * yf * 1.2);
+
+  /* profil radial */
+  float radial = smoothstep(2.7, 3.8, rxz) * (1.0 - smoothstep(11.0, 19.0, rxz));
+  if (radial < 0.005) return vec4(0.0);
+
+  /* rotasi Keplerian untuk adveksi turbulensi */
+  float omega = 1.4 / pow(rxz, 1.5);
+  float ang = -uTime * omega;
+  float cs = cos(ang), sn = sin(ang);
+  vec3 rp = vec3(p.x*cs - p.z*sn, p.y, p.x*sn + p.z*cs);
+
+  /* spiral density wave + noise */
+  float spiral = 0.5 + 0.5 * sin(2.0 * atan(rp.z, rp.x) - 3.0 * log(rxz) + uTime * 0.45);
+  float turb = noise3(rp * 1.5 + vec3(0.0, uTime * 0.03, 0.0));
+  float pattern = turb * 0.68 + spiral * 0.32;
+
+  float dens = vert * radial * smoothstep(0.30, 0.75, pattern);
+  if (dens < 0.0015) return vec4(0.0);
+
+  /* suhu: putih-biru di dalam → merah tua di luar */
+  float tt = clamp((rxz - 3.0) / 12.0, 0.0, 1.0);
+  vec3 c = mix(vec3(1.00,0.97,0.92), vec3(1.00,0.58,0.18), smoothstep(0.00, 0.35, tt));
+  c = mix(c, vec3(0.65,0.15,0.03), smoothstep(0.35, 0.75, tt));
+  c = mix(c, vec3(0.30,0.04,0.01), smoothstep(0.75, 1.00, tt));
+
+  /* Doppler beaming */
+  vec3 vel = normalize(vec3(-p.z, 0.0, p.x));
+  float beta = clamp(sqrt(0.5 / rxz), 0.0, 0.72);
+  float dop = 1.0 / max(0.20, 1.0 - beta * dot(vel, -v));
+  float boost = pow(clamp(dop, 0.30, 3.0), 2.6);
+  boost *= sqrt(max(0.08, 1.0 - 1.0 / rxz));
+
+  /* tint blueshift sisi mendekat */
+  vec3 dt = mix(vec3(1.0), vec3(0.70,0.85,1.0), clamp(dop - 1.0, 0.0, 1.0));
+
+  vec3 emis = c * dt * boost * 3.0;
+  return vec4(emis * dens, dens);
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
+
+  vec3 ro = uCamPos;
+  vec3 ww = normalize(uCamTarget - ro);
+  vec3 uu = normalize(cross(ww, vec3(0.0, 1.0, 0.0)));
+  vec3 vv = cross(uu, ww);
+  vec3 rd = normalize(uv.x * uu + uv.y * vv + uFocal * ww);
+
+  vec3 p = ro;
+  vec3 v = rd;
+
+  vec3  hv = cross(p, v);
+  float h2 = dot(hv, hv);
+
+  vec4 acc = vec4(0.0);
+  bool captured = false;
+  bool escaped  = false;
+
+  for (int i = 0; i < MAXSTEPS; i++){
+    if (i >= uSteps) break;
+
+    float r2 = dot(p, p);
+    float r  = sqrt(r2);
+
+    if (r < 1.0) { captured = true; break; }
+    if (r > 100.0 && dot(p, v) > 0.0) { escaped = true; break; }
+    if (acc.a > 0.995) break;
+
+    float dt = clamp(0.022 * r2, 0.025, 1.2);
+
+    /* sample volume (murah dulu baru panggil) */
+    float rxz = length(p.xz);
+    if (rxz > 2.6 && rxz < 20.0 && abs(p.y) < 2.2){
+      vec4 vol = sampleVolume(p, v);
+      if (vol.a > 0.0){
+        acc.rgb += (1.0 - acc.a) * vol.rgb * dt;
+        acc.a   += (1.0 - acc.a) * vol.a   * dt;
+      }
+    }
+
+    /* glow photon sphere halus */
+    float ring = exp(-pow((r - 1.5) * 3.2, 2.0)) * 0.12;
+    acc.rgb += vec3(1.0, 0.82, 0.55) * ring * dt;
+
+    /* geodesik: a = -3M h² p / r⁵, M = 0.5 */
+    vec3 a = (-1.5 * h2 / (r2 * r2 * r)) * p;
+    v += a * dt;
+    p += v * dt;
+  }
+
+  if (!escaped && !captured) captured = true;
+
+  vec3 col;
+  if (captured){
+    col = acc.rgb;
+  } else {
+    vec3 bg = starfield(normalize(v));
+    /* nebula halus */
+    vec3 dir = normalize(v);
+    float neb = noise3(dir * 3.0 + vec3(0.0, 0.0, uTime * 0.02))
+              + 0.5 * noise3(dir * 6.0 - vec3(0.0, 0.0, uTime * 0.04));
+    bg += pow(smoothstep(0.45, 0.95, neb * 0.66), 2.0)
+        * vec3(0.055, 0.035, 0.13) * 0.9;
+    col = acc.rgb + (1.0 - acc.a) * bg;
+  }
+
+  /* tonemap + gamma + vignette */
+  col *= 1.10;
+  col  = col / (1.0 + col);
+  col  = pow(col, vec3(0.4545));
+
+  vec2 q = gl_FragCoord.xy / uRes;
+  float vig = pow(16.0 * q.x * q.y * (1.0 - q.x) * (1.0 - q.y), 0.18);
+  col *= 0.48 + 0.52 * vig;
+
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+/* ===================== COMPILE ===================== */
+
+function compile(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    console.error(gl.getShaderInfoLog(s));
+    throw new Error('shader');
+  }
+  return s;
+}
+
+let prog;
+try {
+  prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)){
+    console.error(gl.getProgramInfoLog(prog));
+    throw new Error('link');
+  }
+} catch(e){ errBox.style.display='grid'; return; }
+gl.useProgram(prog);
+
+const vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(prog, 'aPos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+const U = {
+  res:    gl.getUniformLocation(prog, 'uRes'),
+  time:   gl.getUniformLocation(prog, 'uTime'),
+  camPos: gl.getUniformLocation(prog, 'uCamPos'),
+  camTgt: gl.getUniformLocation(prog, 'uCamTarget'),
+  focal:  gl.getUniformLocation(prog, 'uFocal'),
+  steps:  gl.getUniformLocation(prog, 'uSteps')
+};
+
+/* ===================== ADAPTIVE ===================== */
+
+const MAX_PIXELS = 1200000;
+const MIN_SCALE  = 0.30;
+const MAX_STEPS  = 200;
+const MIN_STEPS  = 80;
+
+let qualityScale = 0.85;
+let steps        = 170;
+let emaFrame     = 16.7;
+let lastAdjust   = 0;
+
+function applySize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
+  let w = Math.max(1, Math.floor(window.innerWidth  * dpr * qualityScale));
+  let h = Math.max(1, Math.floor(window.innerHeight * dpr * qualityScale));
+  const px = w * h;
+  if (px > MAX_PIXELS){
+    const k = Math.sqrt(MAX_PIXELS / px);
+    w = Math.max(1, Math.floor(w * k));
+    h = Math.max(1, Math.floor(h * k));
+  }
+  if (canvas.width !== w || canvas.height !== h){
+    canvas.width  = w;
+    canvas.height = h;
+    gl.viewport(0, 0, w, h);
+  }
+}
+
+/* ===================== KAMERA ===================== */
+
+const clamp = (v,a,b) => v < a ? a : (v > b ? b : v);
+
+let camAngle = 0.75;
+let camElev  = 0.16;
+let camDist  = 15.0;
+let autoRot  = true;
+let idleTimer = null;
+
+const pointers = new Map();
+let pinchPrev = 0;
+
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  pinchPrev = 0;
+});
+canvas.addEventListener('pointerup',    e => { pointers.delete(e.pointerId); pinchPrev = 0; });
+canvas.addEventListener('pointercancel',e => { pointers.delete(e.pointerId); pinchPrev = 0; });
+canvas.addEventListener('pointermove', e => {
+  const prev = pointers.get(e.pointerId);
+  if (!prev) return;
+  const dx = e.clientX - prev.x;
+  const dy = e.clientY - prev.y;
+  prev.x = e.clientX; prev.y = e.clientY;
+
+  if (pointers.size === 1){
+    camAngle -= dx * 0.006;
+    camElev   = clamp(camElev + dy * 0.005, -1.15, 1.15);
+    autoRot = false;
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { autoRot = true; }, 3200);
+  } else if (pointers.size === 2){
+    const it = pointers.values();
+    const a = it.next().value, b = it.next().value;
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (pinchPrev > 0) camDist = clamp(camDist * (pinchPrev / d), 4.5, 60.0);
+    pinchPrev = d;
+  }
+}, { passive:true });
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  camDist = clamp(camDist * (1.0 + Math.sign(e.deltaY) * 0.08), 4.5, 60.0);
+}, { passive:false });
+
+/* ===================== LOOP ===================== */
+
+let last = performance.now();
+let start = last;
+let hudTimer = 0;
+
+function frame(now){
+  const dt = Math.min(now - last, 100);
+  last = now;
+  const t = (now - start) * 0.001;
+
+  emaFrame += (dt - emaFrame) * 0.08;
+  if (now - lastAdjust > 650){
+    if (emaFrame > 22.5 && qualityScale > MIN_SCALE){
+      qualityScale = Math.max(MIN_SCALE, qualityScale * 0.88);
+      steps = Math.max(MIN_STEPS, steps - 14);
+      applySize();
+      lastAdjust = now;
+    } else if (emaFrame < 13.0 && qualityScale < 1.0){
+      qualityScale = Math.min(1.0, qualityScale * 1.06);
+      steps = Math.min(MAX_STEPS, steps + 10);
+      applySize();
+      lastAdjust = now;
+    }
+  }
+
+  if (autoRot) camAngle += 0.055 * (dt * 0.001);
+
+  const ce = Math.cos(camElev), se = Math.sin(camElev);
+  const cx = camDist * ce * Math.cos(camAngle);
+  const cy = camDist * se;
+  const cz = camDist * ce * Math.sin(camAngle);
+
+  gl.uniform2f(U.res, canvas.width, canvas.height);
+  gl.uniform1f(U.time, t);
+  gl.uniform3f(U.camPos, cx, cy, cz);
+  gl.uniform3f(U.camTgt, 0, 0, 0);
+  gl.uniform1f(U.focal, 1.45);
+  gl.uniform1i(U.steps, steps);
+
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  if (now - hudTimer > 500){
+    const fps = Math.round(1000 / Math.max(emaFrame, 0.01));
+    hud.textContent =
+      'FPS  ' + String(fps).padStart(3, ' ') + '\n' +
+      'RES  ' + canvas.width + 'x' + canvas.height + '\n' +
+      'STEP ' + steps + '\n' +
+      'DIST ' + camDist.toFixed(1) + ' rs\n' +
+      'MODE volumetric-3D';
+    hudTimer = now;
+  }
+
+  requestAnimationFrame(frame);
+}
+
+window.addEventListener('resize', applySize);
+window.addEventListener('orientationchange', () => setTimeout(applySize, 200));
+
+applySize();
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

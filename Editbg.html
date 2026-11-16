@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hapus Background Massal</title>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: auto; padding: 20px; }
+    #drop { border: 2px dashed #aaa; padding: 30px; text-align: center; border-radius: 12px; }
+    .btn { background: #2d7aff; color: white; border: none; padding: 12px 24px; border-radius: 30px; font-size: 1rem; cursor: pointer; }
+    .btn:disabled { opacity: 0.5; }
+    #gallery { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+    .card { width: 150px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
+    .card img { width: 100%; aspect-ratio: 1/1; object-fit: cover; display: block; }
+    .card .name { padding: 4px; font-size: 12px; text-align: center; background: #f5f5f5; }
+    #status { margin: 15px 0; padding: 10px; background: #f0f0f0; border-radius: 8px; }
+    .progress { height: 6px; background: #ddd; border-radius: 3px; margin: 10px 0; }
+    .progress .bar { height: 100%; width: 0%; background: #2d7aff; border-radius: 3px; transition: width 0.3s; }
+  </style>
+</head>
+<body>
+<h2>🖼️ Hapus Background (Offline, Gratis)</h2>
+<div id="drop">
+  <p>📁 Taruh gambar di sini atau klik tombol di bawah</p>
+  <input type="file" id="fileInput" multiple accept="image/*" style="display:none">
+  <button class="btn" id="pickBtn">📂 Pilih Gambar</button>
+  <button class="btn" id="processBtn" disabled>🚀 Proses Semua</button>
+  <button class="btn" id="clearBtn" style="background:#ff4d4d;">🗑️ Hapus</button>
+</div>
+<div id="status">Belum ada gambar.</div>
+<div class="progress"><div class="bar" id="progressBar"></div></div>
+<div id="gallery"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.0/dist/background-removal.umd.js"></script>
+<script>
+  const fileInput = document.getElementById('fileInput');
+  const pickBtn = document.getElementById('pickBtn');
+  const processBtn = document.getElementById('processBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const statusDiv = document.getElementById('status');
+  const gallery = document.getElementById('gallery');
+  const progressBar = document.getElementById('progressBar');
+
+  let selectedFiles = [];
+
+  pickBtn.onclick = () => fileInput.click();
+  fileInput.onchange = (e) => {
+    if (e.target.files.length) {
+      selectedFiles = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+      updateUI();
+      // Reset input agar bisa pilih lagi
+      fileInput.value = '';
+    }
+  };
+
+  // Drag & drop
+  const dropZone = document.getElementById('drop');
+  dropZone.addEventListener('dragover', e => e.preventDefault());
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    if (e.dataTransfer.files.length) {
+      selectedFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+      updateUI();
+    }
+  });
+
+  function updateUI() {
+    gallery.innerHTML = '';
+    if (selectedFiles.length === 0) {
+      statusDiv.textContent = 'Belum ada gambar.';
+      processBtn.disabled = true;
+      return;
+    }
+    statusDiv.textContent = `${selectedFiles.length} gambar dipilih.`;
+    processBtn.disabled = false;
+    selectedFiles.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<img src="${e.target.result}"><div class="name">${file.name}</div>`;
+        gallery.appendChild(card);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Proses
+  processBtn.onclick = async function() {
+    if (selectedFiles.length === 0) return;
+    processBtn.disabled = true;
+    statusDiv.textContent = '⏳ Memuat model (sekali)…';
+    progressBar.style.width = '0%';
+
+    const total = selectedFiles.length;
+    let done = 0;
+
+    for (const file of selectedFiles) {
+      try {
+        const url = URL.createObjectURL(file);
+        statusDiv.textContent = `🔄 ${file.name} (${done+1}/${total})`;
+        const resultBlob = await removeBackground(url);
+        const resultUrl = URL.createObjectURL(resultBlob);
+        // Update thumbnail di galeri
+        const cards = gallery.querySelectorAll('.card');
+        if (cards[done]) {
+          cards[done].querySelector('img').src = resultUrl;
+          cards[done].querySelector('.name').textContent = '✅ ' + file.name;
+        }
+        URL.revokeObjectURL(url);
+        done++;
+        progressBar.style.width = (done/total * 100) + '%';
+      } catch (err) {
+        console.error(file.name, err);
+        statusDiv.textContent = `❌ Gagal: ${file.name}`;
+      }
+    }
+    statusDiv.textContent = `✅ Selesai! ${done}/${total} berhasil. Klik kanan gambar hasil → save.`;
+    processBtn.disabled = false;
+  };
+
+  clearBtn.onclick = () => {
+    selectedFiles = [];
+    gallery.innerHTML = '';
+    progressBar.style.width = '0%';
+    statusDiv.textContent = 'Dibersihkan.';
+    processBtn.disabled = true;
+  };
+
+  // Preload model
+  (async function preload() {
+    try {
+      statusDiv.textContent = '⏳ Memuat model (sekali)…';
+      const canvas = document.createElement('canvas');
+      canvas.width = 1; canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'red'; ctx.fillRect(0,0,1,1);
+      const blob = await new Promise(r => canvas.toBlob(r));
+      const url = URL.createObjectURL(blob);
+      await removeBackground(url);
+      URL.revokeObjectURL(url);
+      statusDiv.textContent = '✅ Model siap. Pilih gambar.';
+    } catch(e) {
+      statusDiv.textContent = '📸 Pilih gambar, model akan muat otomatis.';
+    }
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulasi Pi: Tumpukan Segitiga Menjadi Lingkaran</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #121212;
+            color: #ffffff;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        canvas {
+            background-color: #1e1e1e;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        .controls {
+            margin-top: 20px;
+            text-align: center;
+        }
+        input[type="range"] {
+            width: 300px;
+            margin: 0 10px;
+        }
+        .info {
+            margin-top: 10px;
+            font-size: 1.1rem;
+            color: #00ffcc;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Simulasi \(\pi r^2\): Tumpukan Segitiga</h1>
+    <canvas id="simCanvas" width="500" height="500"></canvas>
+
+    <div class="controls">
+        <label for="triangleSlider">Jumlah Segitiga: </label>
+        <input type="range" id="triangleSlider" min="3" max="100" value="6">
+        <span id="triangleCount">6</span>
+        <div class="info" id="mathInfo">Luas Poligon Bersegitiga</div>
+    </div>
+
+  
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const slider = document.getElementById('triangleSlider');
+        const countDisplay = document.getElementById('triangleCount');
+        const mathInfo = document.getElementById('mathInfo');
+
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const radius = 200;
+
+        function drawSimulation() {
+            // Hapus canvas untuk frame baru
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const n = parseInt(slider.value);
+            countDisplay.innerText = n;
+
+            // 1. Gambar lingkaran target (garis bantu putus-putus)
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset line dash
+
+            // 2. Hitung sudut per segitiga
+            const angleStep = (2 * Math.PI) / n;
+
+            // 3. Gambar tumpukan segitiga melingkar
+            for (let i = 0; i < n; i++) {
+                const startAngle = i * angleStep;
+                const endAngle = (i + 1) * angleStep;
+
+                // Titik sudut luar segitiga 1
+                const x1 = centerX + radius * Math.cos(startAngle);
+                const y1 = centerY + radius * Math.sin(startAngle);
+
+                // Titik sudut luar segitiga 2
+                const x2 = centerX + radius * Math.cos(endAngle);
+                const y2 = centerY + radius * Math.sin(endAngle);
+
+                // Gambar segitiga dari pusat (tromol) ke pinggir (velg)
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY); // Titik pusat (poros roda)
+                ctx.lineTo(x1, y1);           // Garis jari-jari 1
+                ctx.lineTo(x2, y2);           // Garis alas segitiga di pinggiran
+                ctx.closePath();              // Kembali ke pusat (Garis jari-jari 2)
+
+                // Beri warna gradasi selang-seling agar terlihat jelas tumpukannya
+                ctx.fillStyle = (i % 2 === 0) ? 'rgba(0, 255, 204, 0.4)' : 'rgba(0, 153, 255, 0.4)';
+                ctx.fill();
+
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+
+            // 4. Hitung nilai Pi pendekatan berdasarkan luas segitiga saat ini
+            // Luas 1 segitiga = 0.5 * r * r * sin(angleStep)
+            // Total Luas = n * Luas 1 segitiga
+            const totalAreaPolygon = n * 0.5 * radius * radius * Math.sin(angleStep);
+            const realAreaCircle = Math.PI * radius * radius;
+            
+            // Pendekatan Nilai Pi = Total Luas / (r^2)
+            const approximatedPi = (totalAreaPolygon / (radius * radius)).toFixed(5);
+
+            mathInfo.innerHTML = `Pendekatan nilai \\(\\pi\\) Anda: <strong>${approximatedPi}</strong> (Pi Asli: 3.14159)`;
+        }
+
+        // Jalankan fungsi setiap kali slider digeser
+        slider.addEventListener('input', drawSimulation);
+
+        // Jalankan pertama kali saat halaman dimuat
+        drawSimulation();
+
+      
+    </script>
+</body>
+</html>

@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>💥 Bom Nuklir vs Kota · Skala Mikro</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body {
+            background: #05070a;
+            overflow: hidden;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        /* Panel dashboard — di tengah atas */
+        #panel {
+            position: absolute;
+            top: 0;
+            left: 45%;
+            transform: translateX(-50%);
+            background: rgba(10, 15, 25, 0.92);
+            padding: 8px 14px;
+            border-radius: 0 0 12px 12px;
+            border-bottom: 1px solid #ff3300;
+            border-left: 1px solid #ff3300;
+            border-right: 1px solid #ff3300;
+            box-shadow: 0 0 25px rgba(255, 51, 0, 0.25);
+            pointer-events: none;
+            min-width: 160px;
+            max-width: 220px;
+            backdrop-filter: blur(4px);
+            color: #a5c6d4;
+            font-size: 11px;
+            z-index: 10;
+            text-align: center;
+        }
+        #panel h2 {
+            margin: 0 0 3px 0;
+            font-size: 13px;
+            color: #ff3300;
+            text-shadow: 0 0 8px #ff3300;
+            letter-spacing: 1px;
+            white-space: nowrap;
+        }
+        #panel .row {
+            display: flex;
+            justify-content: space-between;
+            margin: 1px 0;
+            white-space: nowrap;
+            gap: 10px;
+            font-size: 10px;
+        }
+        #panel .val {
+            color: #fff;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+        }
+        #status {
+            color: #ffcc00;
+            font-weight: bold;
+            margin-top: 3px;
+            padding-top: 3px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            animation: blink 1.2s infinite;
+            font-size: 10px;
+            white-space: nowrap;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* Kontrol kanan atas — mepet ke pojok */
+        #controls {
+            position: absolute;
+            top: 0;
+            right: 0;
+            background: rgba(10, 15, 25, 0.92);
+            padding: 8px 12px;
+            border-radius: 0 0 0 12px;
+            border-left: 1px solid rgba(255,255,255,0.1);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            pointer-events: auto;
+            backdrop-filter: blur(4px);
+            font-size: 10px;
+            color: #a5c6d4;
+            min-width: 140px;
+            max-width: 170px;
+            z-index: 10;
+        }
+        #controls .ctrl-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 3px;
+            flex-wrap: nowrap;
+        }
+        .ctrl-label {
+            font-weight: 500;
+            color: #c5c6c7;
+            min-width: 36px;
+            font-size: 9px;
+            white-space: nowrap;
+        }
+        #controls input[type="range"] {
+            width: 50px;
+            accent-color: #ff3300;
+            background: transparent;
+            cursor: pointer;
+        }
+        #controls input[type="number"] {
+            width: 34px;
+            padding: 1px 2px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid #2a3a4a;
+            border-radius: 3px;
+            color: #fff;
+            font-weight: bold;
+            text-align: center;
+            font-size: 9px;
+        }
+        #controls button {
+            background: #ff3300;
+            border: none;
+            color: #fff;
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: 0.2s;
+            font-size: 9px;
+            box-shadow: 0 0 12px rgba(255,51,0,0.3);
+            white-space: nowrap;
+        }
+        #controls button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px rgba(255,51,0,0.6);
+        }
+        .ctrl-value {
+            min-width: 20px;
+            text-align: center;
+            color: #fff;
+            font-weight: bold;
+            font-size: 9px;
+        }
+        #controls .hint {
+            font-size: 7px;
+            color: rgba(255,255,255,0.2);
+            text-align: center;
+            margin-top: 1px;
+        }
+
+        @media (max-width: 720px) {
+            #panel { left: 50%; min-width: 120px; padding: 6px 10px; font-size: 9px; }
+            #panel h2 { font-size: 11px; }
+            #controls { min-width: 110px; padding: 6px 8px; }
+            .ctrl-label { min-width: 28px; font-size: 8px; }
+            #controls input[type="range"] { width: 40px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Panel dashboard di tengah atas -->
+    <div id="panel">
+        <h2>☢️ BOM NUKLIR</h2>
+        <div class="row"><span>Uranium</span><span id="u-count" class="val">0</span></div>
+        <div class="row"><span>Kota</span><span id="c-count" class="val">0</span></div>
+        <div class="row"><span>Partikel</span><span id="p-count" class="val">0</span></div>
+        <div class="row"><span>Energi</span><span id="energy" class="val">0</span></div>
+        <div id="status">⚡ Klik layar</div>
+    </div>
+
+    <!-- Kontrol kanan atas -->
+    <div id="controls">
+        <div class="ctrl-row">
+            <span class="ctrl-label">Uranium</span>
+            <input type="number" id="inputU" value="300" min="10" max="5000" step="10" />
+        </div>
+        <div class="ctrl-row">
+            <span class="ctrl-label">Kota</span>
+            <input type="number" id="inputC" value="2000" min="100" max="10000" step="100" />
+        </div>
+        <div class="ctrl-row">
+            <span class="ctrl-label">Kecepatan</span>
+            <input type="range" id="speedSlider" min="0.1" max="3" step="0.1" value="1.0" />
+            <span class="ctrl-value" id="speedLabel">1.0</span>
+        </div>
+        <div class="ctrl-row">
+            <span class="ctrl-label">Neutron/klik</span>
+            <input type="number" id="neutronPerClick" value="1" min="1" max="20" step="1" />
+        </div>
+        <div class="ctrl-row">
+            <span class="ctrl-label">Batas partikel</span>
+            <input type="number" id="maxParticles" value="10000" min="100" max="50000" step="100" />
+        </div>
+        <div class="ctrl-row" style="justify-content:center; gap:6px; margin-top:2px;">
+            <button id="resetBtn">🔄 Reset</button>
+            <span class="hint">klik canvas</span>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        // ============================================================
+        //  SIMULASI BOM NUKLIR vs KOTA — SKALA MIKRO (1-2px)
+        //  Semua ukuran diperkecil, performa lebih ringan
+        // ============================================================
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let W, H;
+        function resize() {
+            W = canvas.width = window.innerWidth;
+            H = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // DOM refs
+        const uCountEl = document.getElementById('u-count');
+        const cCountEl = document.getElementById('c-count');
+        const pCountEl = document.getElementById('p-count');
+        const energyEl = document.getElementById('energy');
+        const statusEl = document.getElementById('status');
+        const inputU = document.getElementById('inputU');
+        const inputC = document.getElementById('inputC');
+        const speedSlider = document.getElementById('speedSlider');
+        const speedLabel = document.getElementById('speedLabel');
+        const neutronPerClick = document.getElementById('neutronPerClick');
+        const maxParticlesInput = document.getElementById('maxParticles');
+        const resetBtn = document.getElementById('resetBtn');
+
+        // ----- State -----
+        let atoms = [];
+        let particles = [];
+        let energyFlashes = [];
+        let shockwave = null;
+        let bigWave = null;
+        let totalEnergy = 0;
+        let speed = 1.0;
+        let screenShake = 0;
+        let shockwaveActive = false;
+
+        // Konfigurasi — ukuran sangat kecil
+        const CONFIG = {
+            ATOM_RADIUS: 1,          // dari 4 → 1.5
+            NEUTRON_SPEED: 5.0,
+            PROTON_SPEED: 4.0,
+            ELECTRON_SPEED: 6.0,
+            FISSION_NEUTRONS: 3,
+            ENERGY_PER_FISSION: 15,
+            PARTICLE_DAMP: 0.998,
+            FLASH_DECAY: 0.02,
+            WAVE_SPEED: 8.0,
+            WAVE_MAX_RADIUS: 1.8,
+            SHAKE_DECAY: 0.94,
+            PARTICLE_RADIUS: 1,       // dari 2.5 → 1.2
+        };
+
+        function getMaxParticles() {
+            return parseInt(maxParticlesInput.value) || 10000;
+        }
+
+        function rand(min, max) { return Math.random() * (max - min) + min; }
+
+        // ----- Bangun dunia -----
+        function buildWorld() {
+            atoms = [];
+            particles = [];
+            energyFlashes = [];
+            totalEnergy = 0;
+            screenShake = 0;
+            shockwave = null;
+            bigWave = null;
+            shockwaveActive = false;
+
+            const uCount = parseInt(inputU.value) || 300;
+            const cCount = parseInt(inputC.value) || 2000;
+
+
+          
+
+
+          
+            // 1. Bom Uranium — di pojok kiri atas (SANGAT dekat pinggir)
+            const bombCX = 12 + Math.random() * 8;
+            const bombCY = 12 + Math.random() * 8;
+
+       //   const bombCX = 150 + Math.random() * 150;
+       //     const bombCY = 180 + Math.random() * 320;
+          
+            const bombRadius = Math.min(W, H) * 0.07;
+            for (let i = 0; i < uCount; i++) {
+                const angle = rand(0, Math.PI * 2);
+                const dist = rand(0, bombRadius);
+                const x = bombCX + Math.cos(angle) * dist;
+                const y = bombCY + Math.sin(angle) * dist;
+                atoms.push({ x, y, isUranium: true, isSplit: false, vibration: 0 });
+            }
+
+            // 2. Kota (sebelah kanan) — dengan jarak antar atom lebih rapat
+            const spacing = 4; // dari 8 → 4 (agar kota lebih padat)
+            const buildings = [
+                { x: W * 0.40, y: H * 0.50, w: 120, h: 220 },
+                { x: W * 0.53, y: H * 0.45, w: 150, h: 280 },
+                { x: W * 0.68, y: H * 0.55, w: 100, h: 180 },
+                { x: W * 0.77, y: H * 0.48, w: 130, h: 240 },
+                { x: W * 0.87, y: H * 0.60, w: 80, h: 130 },
+            ];
+            let count = 0;
+            for (let b of buildings) {
+                for (let x = b.x; x < b.x + b.w; x += spacing) {
+                    for (let y = b.y; y < b.y + b.h; y += spacing) {
+                        if (count >= cCount) break;
+                        if (Math.random() < 0.85) {
+                            atoms.push({
+                                x: x + rand(-1, 1),
+                                y: y + rand(-1, 1),
+                                isUranium: false,
+                                isSplit: false,
+                                vibration: 0
+                            });
+                            count++;
+                        }
+                    }
+                    if (count >= cCount) break;
+                }
+                if (count >= cCount) break;
+            }
+            while (count < cCount) {
+                const x = rand(W * 0.35, W - 20);
+                const y = rand(H * 0.30, H - 20);
+                atoms.push({ x, y, isUranium: false, isSplit: false, vibration: 0 });
+                count++;
+            }
+
+            window.bombPos = { x: bombCX, y: bombCY };
+            updateUI();
+        }
+
+        // ----- Fisi -----
+        function triggerFission(atom) {
+            if (atom.isSplit) return;
+            atom.isSplit = true;
+            totalEnergy += CONFIG.ENERGY_PER_FISSION;
+
+            if (!shockwaveActive) {
+                shockwaveActive = true;
+                const bombPos = window.bombPos || { x: 12, y: 12 };
+                shockwave = {
+                    x: bombPos.x,
+                    y: bombPos.y,
+                    radius: 5,
+                    maxRadius: Math.max(W, H) * CONFIG.WAVE_MAX_RADIUS,
+                    life: 1.0,
+                };
+                bigWave = {
+                    x: bombPos.x,
+                    y: bombPos.y,
+                    radius: 5,
+                    maxRadius: Math.max(W, H) * CONFIG.WAVE_MAX_RADIUS * 1.2,
+                    alpha: 1.0,
+                };
+                screenShake = 20;
+            }
+
+            energyFlashes.push({
+                x: atom.x,
+                y: atom.y,
+                radius: 2,
+                maxRadius: 40 + rand(0, 30),
+                life: 1.0,
+                decay: 0.015 + rand(0, 0.01),
+            });
+
+            // 7 partikel per fisi: 3 neutron, 2 proton, 2 elektron
+            for (let i = 0; i < 2; i++) {
+                const angle = rand(0, Math.PI * 2);
+                const spd = CONFIG.PROTON_SPEED * (0.7 + rand(0, 0.6));
+                particles.push({
+                    x: atom.x,
+                    y: atom.y,
+                    vx: Math.cos(angle) * spd,
+                    vy: Math.sin(angle) * spd,
+                    type: 'proton',
+                    life: 1.0,
+                    alpha: 1.0,
+                    decay: 0.002,
+                    radius: CONFIG.PARTICLE_RADIUS,
+                });
+                const angle2 = rand(0, Math.PI * 2);
+                const spd2 = CONFIG.ELECTRON_SPEED * (0.8 + rand(0, 0.8));
+                particles.push({
+                    x: atom.x,
+                    y: atom.y,
+                    vx: Math.cos(angle2) * spd2,
+                    vy: Math.sin(angle2) * spd2,
+                    type: 'electron',
+                    life: 1.0,
+                    alpha: 1.0,
+                    decay: 0.003,
+                    radius: CONFIG.PARTICLE_RADIUS * 0.6,
+                });
+            }
+            for (let i = 0; i < CONFIG.FISSION_NEUTRONS; i++) {
+                const angle = rand(0, Math.PI * 2);
+                const spd = CONFIG.NEUTRON_SPEED * (0.6 + rand(0, 0.8));
+                particles.push({
+                    x: atom.x,
+                    y: atom.y,
+                    vx: Math.cos(angle) * spd,
+                    vy: Math.sin(angle) * spd,
+                    type: 'neutron',
+                    life: 1.0,
+                    alpha: 1.0,
+                    decay: 0.001,
+                    radius: CONFIG.PARTICLE_RADIUS,
+                });
+            }
+
+            const maxP = getMaxParticles();
+            if (particles.length > maxP) {
+                particles.splice(0, particles.length - maxP);
+            }
+            updateUI();
+        }
+
+        // ----- Tembak neutron -----
+        function shootNeutrons(fromX, fromY) {
+            const bombPos = window.bombPos || { x: 12, y: 12 };
+            const angle = Math.atan2(bombPos.y - fromY, bombPos.x - fromX);
+            const n = parseInt(neutronPerClick.value) || 1;
+            for (let i = 0; i < n; i++) {
+                const spread = (Math.random() - 0.5) * 0.25;
+                const a = angle + spread;
+                const spd = CONFIG.NEUTRON_SPEED * (0.9 + rand(0, 0.2));
+                particles.push({
+                    x: fromX,
+                    y: fromY,
+                    vx: Math.cos(a) * spd,
+                    vy: Math.sin(a) * spd,
+                    type: 'neutron',
+                    life: 1.0,
+                    alpha: 1.0,
+                    decay: 0.001,
+                    radius: CONFIG.PARTICLE_RADIUS,
+                });
+            }
+            const maxP = getMaxParticles();
+            if (particles.length > maxP) {
+                particles.splice(0, particles.length - maxP);
+            }
+            statusEl.textContent = '💥 FISI BERLANGSUNG!';
+            statusEl.style.color = '#ff3300';
+            updateUI();
+        }
+
+        // ----- Update UI -----
+        function updateUI() {
+            let u = 0, c = 0;
+            for (let a of atoms) {
+                if (a.isSplit) continue;
+                if (a.isUranium) u++;
+                else c++;
+            }
+            uCountEl.textContent = u;
+            cCountEl.textContent = c;
+            pCountEl.textContent = particles.length;
+            energyEl.textContent = Math.round(totalEnergy * 10) / 10;
+            if (u === 0 && totalEnergy > 0) {
+                statusEl.textContent = '☢️ KOTA HANCUR!';
+                statusEl.style.color = '#ffaa00';
+            }
+        }
+
+        // ----- Loop animasi -----
+        function animate() {
+            speed = parseFloat(speedSlider.value) || 1.0;
+            speedLabel.textContent = speed.toFixed(1);
+
+            // Gelombang kejut
+            if (shockwave) {
+                shockwave.radius += CONFIG.WAVE_SPEED * speed;
+                shockwave.life -= 0.003 * speed;
+                for (let a of atoms) {
+                    if (a.isSplit || a.isUranium) continue;
+                    const dist = Math.hypot(a.x - shockwave.x, a.y - shockwave.y);
+                    if (dist < shockwave.radius + 20) {
+                        a.vibration = Math.max(a.vibration, 2.5 * (1 - dist / shockwave.maxRadius));
+                    }
+                }
+                if (shockwave.radius > shockwave.maxRadius || shockwave.life <= 0) {
+                    shockwave = null;
+                }
+            }
+
+            // Gelombang cahaya
+            if (bigWave) {
+                bigWave.radius += CONFIG.WAVE_SPEED * speed;
+                bigWave.alpha -= 0.0015 * speed;
+                if (bigWave.alpha <= 0) bigWave = null;
+            }
+
+            // Partikel
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx * speed;
+                p.y += p.vy * speed;
+                p.vx *= CONFIG.PARTICLE_DAMP;
+                p.vy *= CONFIG.PARTICLE_DAMP;
+
+                // Hapus jika keluar layar (longgar)
+                if (p.x < -50 || p.x > W + 50 || p.y < -50 || p.y > H + 50) {
+                    p.life = 0;
+                }
+
+                p.life -= p.decay * speed;
+                p.alpha = Math.max(0, p.life);
+
+                if (p.alpha <= 0.01) {
+                    particles.splice(i, 1);
+                    continue;
+                }
+
+                // Neutron → uranium
+                if (p.type === 'neutron' && p.alpha > 0.2) {
+                    for (let a of atoms) {
+                        if (a.isSplit || !a.isUranium) continue;
+                        const dist = Math.hypot(p.x - a.x, p.y - a.y);
+                        if (dist < CONFIG.ATOM_RADIUS + p.radius) {
+                            triggerFission(a);
+                            p.life = 0;
+                            break;
+                        }
+                    }
+                }
+
+                // Partikel → atom kota
+                if (p.alpha > 0.2) {
+                    for (let a of atoms) {
+                        if (a.isSplit || a.isUranium) continue;
+                        const dist = Math.hypot(p.x - a.x, p.y - a.y);
+                        if (dist < CONFIG.ATOM_RADIUS + p.radius) {
+                            energyFlashes.push({
+                                x: a.x,
+                                y: a.y,
+                                radius: 2,
+                                maxRadius: 15 + rand(0, 10),
+                                life: 1.0,
+                                decay: 0.04 + rand(0, 0.02),
+                            });
+                            a.isSplit = true;
+                            p.life = 0;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Flash kecil
+            for (let i = energyFlashes.length - 1; i >= 0; i--) {
+                const f = energyFlashes[i];
+                f.radius += (f.maxRadius - f.radius) * 0.06 * speed;
+                f.life -= f.decay * speed;
+                if (f.life <= 0) energyFlashes.splice(i, 1);
+            }
+
+            const maxP = getMaxParticles();
+            if (particles.length > maxP) {
+                particles.splice(0, particles.length - maxP);
+            }
+
+            // Screen shake
+            if (screenShake > 0.1) {
+                screenShake *= CONFIG.SHAKE_DECAY;
+            } else {
+                screenShake = 0;
+            }
+
+            // ---- Gambar ----
+            ctx.save();
+            if (screenShake > 0.5) {
+                const dx = (Math.random() - 0.5) * screenShake * 0.8;
+                const dy = (Math.random() - 0.5) * screenShake * 0.8;
+                ctx.translate(dx, dy);
+            }
+
+            ctx.fillStyle = '#05070a';
+            ctx.fillRect(0, 0, W, H);
+
+            // Atom — ukuran kecil
+            for (let a of atoms) {
+                if (a.isSplit) continue;
+                let ox = 0, oy = 0;
+                if (a.vibration > 0.1) {
+                    ox = (Math.random() - 0.5) * a.vibration * 1.5;
+                    oy = (Math.random() - 0.5) * a.vibration * 1.5;
+                    a.vibration *= 0.92;
+                } else {
+                    a.vibration = 0;
+                }
+                const x = a.x + ox;
+                const y = a.y + oy;
+
+                ctx.beginPath();
+                ctx.arc(x, y, CONFIG.ATOM_RADIUS, 0, Math.PI * 2);
+                if (a.isUranium) {
+                    ctx.fillStyle = '#ff2222';
+                    ctx.shadowBlur = 4;
+                    ctx.shadowColor = '#ff2222';
+                } else {
+                    ctx.fillStyle = '#5e7a8a';
+                    ctx.shadowBlur = 1;
+                    ctx.shadowColor = 'rgba(255,255,255,0.1)';
+                }
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+
+            // Gelombang cahaya besar
+            if (bigWave) {
+                const alpha = bigWave.alpha * 0.5;
+                const grad = ctx.createRadialGradient(bigWave.x, bigWave.y, 0, bigWave.x, bigWave.y, bigWave.radius);
+                grad.addColorStop(0, `rgba(255, 255, 255, ${alpha * 0.9})`);
+                grad.addColorStop(0.2, `rgba(255, 200, 100, ${alpha * 0.7})`);
+                grad.addColorStop(0.5, `rgba(255, 100, 50, ${alpha * 0.4})`);
+                grad.addColorStop(0.8, `rgba(200, 50, 150, ${alpha * 0.2})`);
+                grad.addColorStop(1, `rgba(100, 0, 200, 0)`);
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(bigWave.x, bigWave.y, bigWave.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = `rgba(255, 200, 100, ${alpha * 0.3})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(bigWave.x, bigWave.y, bigWave.radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            // Gelombang kejut
+            if (shockwave) {
+                const alpha = shockwave.life * 0.5;
+                ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.4})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(shockwave.x, shockwave.y, shockwave.radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            // Flash kecil
+            for (let f of energyFlashes) {
+                const alpha = f.life * 0.7;
+                const grad = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.radius);
+                grad.addColorStop(0, `rgba(255, 255, 255, ${alpha * 0.9})`);
+                grad.addColorStop(0.15, `rgba(255, 200, 100, ${alpha * 0.8})`);
+                grad.addColorStop(0.4, `rgba(255, 100, 50, ${alpha * 0.6})`);
+                grad.addColorStop(0.7, `rgba(200, 50, 150, ${alpha * 0.4})`);
+                grad.addColorStop(1, `rgba(100, 0, 200, 0)`);
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Partikel — ukuran kecil
+            for (let p of particles) {
+                if (p.alpha <= 0.02) continue;
+                ctx.globalAlpha = p.alpha;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius || CONFIG.PARTICLE_RADIUS, 0, Math.PI * 2);
+                let color;
+                if (p.type === 'neutron') color = '#45f3ff';
+                else if (p.type === 'proton') color = '#00ff88';
+                else color = '#ffdd44';
+                ctx.fillStyle = color;
+                ctx.shadowBlur = 6;
+                ctx.shadowColor = color;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.globalAlpha = 1;
+            }
+
+            ctx.restore();
+            updateUI();
+            requestAnimationFrame(animate);
+        }
+
+        // ----- Event -----
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            shootNeutrons(mx, my);
+        });
+
+        resetBtn.addEventListener('click', () => {
+            buildWorld();
+            statusEl.textContent = '⚡ Klik layar';
+            statusEl.style.color = '#ffcc00';
+            screenShake = 0;
+            shockwave = null;
+            bigWave = null;
+            shockwaveActive = false;
+        });
+
+        // ---- Mulai ----
+        buildWorld();
+        animate();
+        window.addEventListener('resize', resize);
+
+        console.log('💥 Skala mikro: atom 1.5px, partikel 1.2px');
+        console.log('💡 Kota lebih padat (spacing 4px), bom di pojok kiri atas.');
+    </script>
+</body>
+</html>

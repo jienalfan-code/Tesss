@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Black Hole 2D — WebGL</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;background:#000;overflow:hidden;
+            -webkit-tap-highlight-color:transparent;
+            -webkit-touch-callout:none;user-select:none}
+  #c{display:block;width:100%;height:100%;touch-action:none;
+     image-rendering:auto;background:#000}
+  #hud{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);
+       left:calc(env(safe-area-inset-left,0px) + 12px);
+       font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;
+       color:#8fa6c0;text-shadow:0 0 8px #000;pointer-events:none;
+       opacity:.85;letter-spacing:.3px;white-space:pre}
+  #err{position:fixed;inset:0;display:none;place-items:center;
+       color:#ff8080;font:14px ui-monospace,monospace;text-align:center;padding:24px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="err">WebGL tidak tersedia di browser ini.</div>
+
+<script>
+(() => {
+"use strict";
+
+/* =========================================================
+   BLACK HOLE 2D — geodesic raytracer (WebGL1, mobile-first)
+   Satuan: r_s = 1  →  M = 0.5
+   ========================================================= */
+
+const canvas = document.getElementById('c');
+const hud    = document.getElementById('hud');
+const errBox = document.getElementById('err');
+
+const gl = canvas.getContext('webgl', {
+  alpha:false, antialias:false, depth:false, stencil:false,
+  premultipliedAlpha:false, preserveDrawingBuffer:false,
+  powerPreference:'high-performance'
+}) || canvas.getContext('experimental-webgl');
+
+if (!gl) { errBox.style.display = 'grid'; return; }
+
+/* ---------------- shader ---------------- */
+
+const VERT = `
+attribute vec2 aPos;
+void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }
+`;
+
+const FRAG = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2  uRes;
+uniform float uTime;
+uniform vec3  uCamPos;
+uniform vec3  uCamTarget;
+uniform float uFocal;
+uniform int   uSteps;
+uniform float uEscapeR;
+
+uniform vec3  uStarPos;
+uniform vec3  uStarPrev;
+uniform float uStarRad;
+uniform float uStarInten;
+uniform vec3  uStarColor;
+uniform float uFlash;
+
+const int MAXSTEPS = 340;
+
+/* ---------- hash & noise ---------- */
+float hash21(vec2 p){
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+vec2 hash22(vec2 p){
+  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
+}
+float noise2(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i);
+  float b = hash21(i + vec2(1.0, 0.0));
+  float c = hash21(i + vec2(0.0, 1.0));
+  float d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float fbm4(vec2 p){
+  float v = 0.0, a = 0.5;
+  mat2 m = mat2(1.6, 1.2, -1.2, 1.6);
+  for (int i = 0; i < 4; i++){
+    v += a * noise2(p);
+    p = m * p; a *= 0.5;
+  }
+  return v;
+}
+float fbm3(vec2 p){
+  float v = 0.0, a = 0.5;
+  mat2 m = mat2(1.6, 1.2, -1.2, 1.6);
+  for (int i = 0; i < 3; i++){
+    v += a * noise2(p);
+    p = m * p; a *= 0.5;
+  }
+  return v;
+}
+
+/* ---------- bintang latar ---------- */
+float starLayer(vec2 uv, float dens, float seed, float thr, float sz){
+  vec2 g  = uv * dens;
+  vec2 id = floor(g);
+  vec2 f  = fract(g) - 0.5;
+  float h = hash21(id + seed);
+  if (h < thr) return 0.0;
+  vec2 o = hash22(id + seed + 3.1) - 0.5;
+  float d = length(f - o * 0.62);
+  float tw = 0.72 + 0.28 * sin(uTime * 2.4 + h * 47.0);
+  float core = smoothstep(sz, 0.0, d);
+  return core * tw * (0.28 + 0.72 * fract(h * 91.7));
+}
+
+/* ---------- latar belakang ---------- */
+vec3 background(vec3 rd){
+  float az = atan(rd.z, rd.x);
+  float el = asin(clamp(rd.y, -1.0, 1.0));
+  vec2 uv = vec2(az, el);
+
+  vec3 col = vec3(0.0);
+  col += starLayer(uv,        22.0,  1.0, 0.860, 0.150) * vec3(0.86, 0.91, 1.00) * 1.7;
+  col += starLayer(uv + 7.3,  52.0,  9.0, 0.925, 0.095) * vec3(1.00, 0.86, 0.66) * 0.95;
+  col += starLayer(uv + 3.1, 105.0, 21.0, 0.958, 0.060) * vec3(0.80, 0.86, 1.00) * 0.55;
+
+  float n1 = fbm3(uv * 2.0 + 4.0);
+  col += pow(smoothstep(0.42, 0.92, n1), 2.0) * vec3(0.085, 0.050, 0.170) * 1.6;
+  float n2 = fbm3(uv * 3.6 - 2.0);
+  col += pow(smoothstep(0.52, 0.96, n2), 2.0) * vec3(0.020, 0.105, 0.170) * 1.3;
+
+  return col;
+}
+
+/* ---------- piringan akresi (premultiplied) ---------- */
+vec4 accretionDisk(vec3 hp, vec3 rd){
+  float rr = length(hp.xz);
+  if (rr < 2.90 || rr > 18.0) return vec4(0.0);
+
+  float omega = 1.6 / pow(rr, 1.5);
+  float rot = -uTime * omega;
+  float cs = cos(rot), sn = sin(rot);
+  vec2 rp = vec2(hp.x * cs - hp.z * sn, hp.x * sn + hp.z * cs);
+
+  float n  = fbm4(rp * 1.35 + vec2(0.0, uTime * 0.015));
+  float n2 = noise2(rp * 5.5 - uTime * 0.12);
+
+  float radial = smoothstep(2.90, 3.80, rr) * (1.0 - smoothstep(9.0, 17.0, rr));
+  float dens = radial * smoothstep(0.30, 0.86, n * 0.78 + n2 * 0.32);
+  if (dens < 0.002) return vec4(0.0);
+
+  float tt = clamp((rr - 3.0) / 11.0, 0.0, 1.0);
+  vec3 c = mix(vec3(1.00, 0.97, 0.92), vec3(1.00, 0.56, 0.16), smoothstep(0.00, 0.42, tt));
+  c = mix(c, vec3(0.60, 0.12, 0.02), smoothstep(0.42, 0.82, tt));
+  c = mix(c, vec3(0.34, 0.05, 0.01), smoothstep(0.82, 1.00, tt));
+
+  vec3 vel = normalize(vec3(-hp.z, 0.0, hp.x));
+  float beta = clamp(sqrt(0.5 / rr), 0.0, 0.72);
+  float dop  = 1.0 / max(0.18, 1.0 - beta * dot(vel, -rd));
+  float boost = pow(clamp(dop, 0.25, 3.0), 2.5);
+  boost *= sqrt(max(0.06, 1.0 - 1.0 / rr));
+
+  vec3 emissive = c * boost * 2.3;
+  float alpha = clamp(dens * 1.55, 0.0, 1.0);
+  return vec4(emissive * alpha, alpha);
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
+
+  vec3 ro = uCamPos;
+  vec3 ww = normalize(uCamTarget - ro);
+  vec3 uu = normalize(cross(ww, vec3(0.0, 1.0, 0.0)));
+  vec3 vv = cross(uu, ww);
+  vec3 rd = normalize(uv.x * uu + uv.y * vv + uFocal * ww);
+
+  vec3 p = ro;
+  vec3 v = rd;
+
+  vec3  hv = cross(p, v);
+  float h2 = dot(hv, hv);
+
+  vec4 acc = vec4(0.0);
+  bool captured = false;
+  bool escaped  = false;
+  bool hitStar  = false;
+  int  crossings = 0;
+  float starGlow = 0.0;
+
+  /* segmen jejak bintang (untuk spaghettifikasi) */
+  vec3  abA   = uStarPos - uStarPrev;
+  float abLen2 = max(dot(abA, abA), 1e-6);
+
+  for (int i = 0; i < MAXSTEPS; i++){
+    if (i >= uSteps) break;
+
+    float r2 = dot(p, p);
+    float r  = sqrt(r2);
+
+    if (r < 1.0) { captured = true; break; }
+    if (r > uEscapeR && dot(p, v) > 0.0) { escaped = true; break; }
+
+    /* langkah adaptif: halus dekat BH, sangat kasar jauh */
+    float dt = clamp(0.015 * r2, 0.020, 2.0 + max(0.0, r - 20.0) * 0.5);
+
+    /* --- kedekatan dengan bintang --- */
+    float ts = clamp(dot(p - uStarPrev, abA) / abLen2, 0.0, 1.0);
+    float dS = length(p - uStarPrev - abA * ts);
+
+    if (dS < uStarRad * 6.0){
+      dt = min(dt, max(0.004, dS * 0.30));
+      float g = exp(-dS * dS / (uStarRad * uStarRad * 7.0));
+      starGlow = max(starGlow, g);
+      if (dS < uStarRad * 0.95){ hitStar = true; break; }
+    }
+
+    vec3 pPrev = p;
+    vec3 a = (-1.5 * h2 / (r2 * r2 * r)) * p;
+    v += a * dt;
+    p += v * dt;
+
+    if (pPrev.y * p.y < 0.0 && crossings < 4){
+      float tf = pPrev.y / (pPrev.y - p.y);
+      vec3 hp = mix(pPrev, p, tf);
+      vec4 d  = accretionDisk(hp, rd);
+      acc.rgb += (1.0 - acc.a) * d.rgb;
+      acc.a    = acc.a + (1.0 - acc.a) * d.a;
+      crossings++;
+    }
+  }
+  if (!escaped && !hitStar) captured = true;
+
+  /* ---------- komposit ---------- */
+  vec3 bgc = background(normalize(v));
+  vec3 col;
+
+  if (captured && !hitStar) col = acc.rgb;
+  else                      col = acc.rgb + (1.0 - acc.a) * bgc;
+
+  if (hitStar){
+    vec3 sc = uStarColor * uStarInten;
+    float vis = 1.0 - acc.a;
+    col += vis * sc * (2.2 + 1.4 * starGlow);
+  } else if (starGlow > 0.002){
+    col += (1.0 - acc.a) * starGlow * uStarColor * uStarInten * 0.85;
+  }
+
+  /* ---------- kilatan penelanan (screen-space, BH selalu di tengah) ---------- */
+  if (uFlash > 0.001){
+    vec2 sc2 = gl_FragCoord.xy / uRes - 0.5;
+    sc2.x *= uRes.x / uRes.y;
+    float sd = length(sc2);
+    float f  = uFlash;
+    float core = exp(-sd * sd * 900.0);
+    float rad  = 0.015 + 0.16 * (1.0 - f);
+    float ring = exp(-pow((sd - rad) / 0.035, 2.0));
+    col += f * (core * 9.0 + ring * 3.2) * vec3(1.0, 0.90, 0.78);
+  }
+
+  /* ---------- tonemap ---------- */
+  col *= 1.15;
+  col  = col / (1.0 + col);
+  col  = pow(col, vec3(0.4545));
+
+  vec2 q = gl_FragCoord.xy / uRes;
+  float vig = pow(16.0 * q.x * q.y * (1.0 - q.x) * (1.0 - q.y), 0.16);
+  col *= 0.45 + 0.55 * vig;
+
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+/* ---------------- compile ---------------- */
+
+function compile(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    console.error(gl.getShaderInfoLog(s));
+    throw new Error('shader');
+  }
+  return s;
+}
+
+let prog;
+try {
+  prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error('link');
+} catch(e){ errBox.style.display = 'grid'; return; }
+gl.useProgram(prog);
+
+const vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(prog, 'aPos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+const U = {
+  res:      gl.getUniformLocation(prog, 'uRes'),
+  time:     gl.getUniformLocation(prog, 'uTime'),
+  camPos:   gl.getUniformLocation(prog, 'uCamPos'),
+  camTgt:   gl.getUniformLocation(prog, 'uCamTarget'),
+  focal:    gl.getUniformLocation(prog, 'uFocal'),
+  steps:    gl.getUniformLocation(prog, 'uSteps'),
+  escapeR:  gl.getUniformLocation(prog, 'uEscapeR'),
+  starPos:  gl.getUniformLocation(prog, 'uStarPos'),
+  starPrev: gl.getUniformLocation(prog, 'uStarPrev'),
+  starRad:  gl.getUniformLocation(prog, 'uStarRad'),
+  starInt:  gl.getUniformLocation(prog, 'uStarInten'),
+  starCol:  gl.getUniformLocation(prog, 'uStarColor'),
+  flash:    gl.getUniformLocation(prog, 'uFlash')
+};
+
+/* ---------------- kualitas adaptif ---------------- */
+
+const MAX_PIXELS = 1500000;
+const MIN_SCALE  = 0.34;
+const MAX_STEPS  = 320;
+
+let qualityScale = 1.0;
+let steps        = 200;
+let emaFrame     = 16.7;
+let lastAdjust   = 0;
+
+function applySize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
+  let w = Math.max(1, Math.floor(window.innerWidth  * dpr * qualityScale));
+  let h = Math.max(1, Math.floor(window.innerHeight * dpr * qualityScale));
+  const px = w * h;
+  if (px > MAX_PIXELS){
+    const k = Math.sqrt(MAX_PIXELS / px);
+    w = Math.max(1, Math.floor(w * k));
+    h = Math.max(1, Math.floor(h * k));
+  }
+  if (canvas.width !== w || canvas.height !== h){
+    canvas.width = w; canvas.height = h;
+    gl.viewport(0, 0, w, h);
+  }
+}
+
+/* ---------------- kamera ---------------- */
+
+const clamp = (v,a,b) => v < a ? a : (v > b ? b : v);
+
+let camAngle = 0.75;
+let camElev  = 0.155;
+let camDist  = 15.0;
+let autoRot  = true;
+let idleTimer = null;
+
+const pointers = new Map();
+let pinchPrev = 0;
+
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  pinchPrev = 0;
+});
+canvas.addEventListener('pointerup',    e => { pointers.delete(e.pointerId); pinchPrev = 0; });
+canvas.addEventListener('pointercancel',e => { pointers.delete(e.pointerId); pinchPrev = 0; });
+canvas.addEventListener('pointermove', e => {
+  const prev = pointers.get(e.pointerId);
+  if (!prev) return;
+  const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
+  prev.x = e.clientX; prev.y = e.clientY;
+
+  if (pointers.size === 1){
+    camAngle -= dx * 0.006;
+    camElev   = clamp(camElev + dy * 0.005, -1.15, 1.15);
+    autoRot = false;
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { autoRot = true; }, 3200);
+  } else if (pointers.size === 2){
+    const it = pointers.values();
+    const a = it.next().value, b = it.next().value;
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (pinchPrev > 0) camDist = clamp(camDist * (pinchPrev / d), 3.5, 400.0);
+    pinchPrev = d;
+  }
+}, { passive:true });
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  camDist = clamp(camDist * (1.0 + Math.sign(e.deltaY) * 0.08), 3.5, 400.0);
+}, { passive:false });
+
+/* ---------------- bintang yang ditelan ---------------- */
+
+const star = {
+  r: 26.0,
+  theta: Math.random() * Math.PI * 2,
+  inc: 0.42,                // kemiringan bidang orbit
+  rad: 0.50,
+  active: true,
+  flash: 0,
+  respawn: 0,
+  inten: 1.0,
+  color: [1.0, 0.75, 0.45]
+};
+
+let starPosArr  = [0,0,0];
+let starPrevArr = [0,0,0];
+
+function orbitPoint(r, th){
+  const x  = r * Math.cos(th);
+  const z0 = r * Math.sin(th);
+  return [ x, z0 * Math.sin(star.inc), z0 * Math.cos(star.inc) ];
+}
+
+function updateStar(dt){
+  if (star.active){
+    const omega = 3.2 / Math.pow(star.r, 1.5);
+    const rdot  = -(1.2 + 12.0 / (star.r * star.r)) * 0.6;
+
+    star.theta += omega * dt;
+    star.r     += rdot  * dt;
+
+    const lag  = 0.12;
+    starPosArr  = orbitPoint(star.r, star.theta);
+    starPrevArr = orbitPoint(star.r - rdot * lag, star.theta - omega * lag);
+
+    if (star.r < 1.06){
+      star.active  = false;
+      star.flash   = 1.0;
+      star.respawn = 2.6;
+      star.r       = 1.06;
+    }
+  } else {
+    star.flash *= Math.exp(-dt * 4.5);
+    star.respawn -= dt;
+    if (star.respawn <= 0){
+      star.active  = true;
+      star.r       = 26.0;
+      star.theta   = Math.random() * Math.PI * 2;
+      star.flash   = 0;
+    }
+  }
+
+  /* pemanasan pasang-surut */
+  const t    = clamp((star.r - 1.0) / 25.0, 0.0, 1.0);
+  const heat = 1.0 - t;
+  star.inten = 0.9 + 5.0 * Math.pow(heat, 2.0);
+
+  const w = [1.00, 0.72, 0.40];
+  const h = [0.85, 0.93, 1.00];
+  const m = Math.pow(heat, 1.4);
+  star.color = [
+    w[0] + (h[0]-w[0]) * m,
+    w[1] + (h[1]-w[1]) * m,
+    w[2] + (h[2]-w[2]) * m
+  ];
+}
+
+/* ---------------- loop ---------------- */
+
+let last = performance.now();
+let start = last;
+let hudTimer = 0;
+
+function frame(now){
+  const dt  = Math.min(now - last, 100);
+  last = now;
+  const t  = (now - start) * 0.001;
+  const dts = dt * 0.001;
+
+  emaFrame += (dt - emaFrame) * 0.08;
+  if (now - lastAdjust > 650){
+    if (emaFrame > 22.5 && qualityScale > MIN_SCALE){
+      qualityScale = Math.max(MIN_SCALE, qualityScale * 0.88);
+      steps = Math.max(90, steps - 14);
+      applySize(); lastAdjust = now;
+    } else if (emaFrame < 13.0 && qualityScale < 1.0){
+      qualityScale = Math.min(1.0, qualityScale * 1.06);
+      steps = Math.min(MAX_STEPS, steps + 10);
+      applySize(); lastAdjust = now;
+    }
+  }
+
+  updateStar(dts);
+
+  if (autoRot) camAngle += 0.055 * dts;
+
+  const ce = Math.cos(camElev), se = Math.sin(camElev);
+  const cx = camDist * ce * Math.cos(camAngle);
+  const cy = camDist * se;
+  const cz = camDist * ce * Math.sin(camAngle);
+
+  gl.uniform2f(U.res, canvas.width, canvas.height);
+  gl.uniform1f(U.time, t);
+  gl.uniform3f(U.camPos, cx, cy, cz);
+  gl.uniform3f(U.camTgt, 0, 0, 0);
+  gl.uniform1f(U.focal, 1.45);
+  gl.uniform1i(U.steps, steps);
+  gl.uniform1f(U.escapeR, Math.max(90.0, camDist * 1.3 + 25.0));
+
+  gl.uniform3f(U.starPos,  starPosArr[0],  starPosArr[1],  starPosArr[2]);
+  gl.uniform3f(U.starPrev, starPrevArr[0], starPrevArr[1], starPrevArr[2]);
+  gl.uniform1f(U.starRad, star.rad);
+  gl.uniform1f(U.starInt, star.active ? star.inten : 0.0);
+  gl.uniform3f(U.starCol, star.color[0], star.color[1], star.color[2]);
+  gl.uniform1f(U.flash, star.flash);
+
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  if (now - hudTimer > 400){
+    const fps = Math.round(1000 / Math.max(emaFrame, 0.01));
+    hud.textContent =
+      'FPS  ' + String(fps).padStart(3,' ') + '\n' +
+      'RES  ' + canvas.width + 'x' + canvas.height + '\n' +
+      'STEP ' + steps + '\n' +
+      'DIST ' + camDist.toFixed(1) + ' rs\n' +
+      'STAR ' + (star.active ? star.r.toFixed(1) + ' rs' : 'TERTELAN');
+    hudTimer = now;
+  }
+
+  requestAnimationFrame(frame);
+}
+
+window.addEventListener('resize', applySize);
+window.addEventListener('orientationchange', () => setTimeout(applySize, 200));
+
+applySize();
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

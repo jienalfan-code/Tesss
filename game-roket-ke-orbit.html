@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🚀 Gravity Orbits - Misi Roket</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; user-select:none; -webkit-user-select:none; touch-action:none; }
+        body { background:#0a0a1a; overflow:hidden; height:100vh; width:100vw; font-family:'Courier New',monospace; display:flex; flex-direction:column; }
+        #canvasContainer { flex:1; position:relative; width:100%; overflow:hidden; }
+        canvas { display:block; width:100%; height:100%; background:#050510; }
+        #hud { position:absolute; top:12px; left:12px; color:#a4b0be; font-size:12px; line-height:1.6; background:rgba(0,0,0,0.4); padding:6px 12px; border-radius:8px; backdrop-filter:blur(4px); border:1px solid rgba(255,255,255,0.05); pointer-events:none; }
+        #hud span { color:#48dbfb; font-weight:bold; }
+        #orbitDisplay { position:absolute; top:12px; right:12px; color:#feca57; font-size:16px; font-weight:bold; background:rgba(0,0,0,0.4); padding:4px 14px; border-radius:30px; border:1px solid rgba(255,200,50,0.2); }
+        #countdownOverlay { position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+        #countdownText { font-size:100px; color:#fff; text-shadow:0 0 60px #48dbfb; opacity:0.9; font-weight:bold; }
+        #controls { background:rgba(10,10,30,0.85); backdrop-filter:blur(12px); border-top:1px solid rgba(255,255,255,0.08); padding:10px 14px 16px 14px; display:flex; flex-direction:column; gap:10px; flex-shrink:0; }
+        .control-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+        .control-row .label { color:#8395a7; font-size:12px; font-weight:bold; min-width:40px; }
+        input[type="range"].steer { flex:1; height:5px; -webkit-appearance:none; appearance:none; background:linear-gradient(90deg,#ff6b6b,#feca57,#48dbfb); border-radius:4px; outline:none; }
+        input[type="range"].steer::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:20px; height:20px; border-radius:50%; background:#f1f2f6; cursor:pointer; border:2px solid #576574; box-shadow:0 0 20px rgba(72,219,251,0.4); }
+        .throttle-wrap { display:flex; align-items:center; justify-content:center; height:50px; width:36px; transform:rotate(-90deg); margin:0 -6px; }
+        input[type="range"].throttle { width:50px; height:5px; -webkit-appearance:none; appearance:none; background:linear-gradient(90deg,#2e86de,#f368e0); border-radius:4px; outline:none; }
+        input[type="range"].throttle::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:22px; height:22px; border-radius:50%; background:#fff; cursor:pointer; border:2px solid #f368e0; box-shadow:0 0 20px rgba(243,104,224,0.6); }
+        .btn-group { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+        .btn-group input[type="number"] { width:60px; padding:4px 2px; background:rgba(255,255,255,0.05); border:1px solid #576574; border-radius:6px; color:#f1f2f6; font-size:12px; text-align:center; font-family:monospace; }
+        .btn-group label { color:#8395a7; font-size:10px; }
+        #btnStart { background:linear-gradient(135deg,#00d2d3,#01a3a4); border:none; color:#fff; padding:6px 14px; border-radius:30px; font-weight:bold; font-size:14px; cursor:pointer; box-shadow:0 0 30px rgba(0,210,211,0.3); transition:0.2s; font-family:'Courier New',monospace; min-width:80px; }
+        #btnStart:active { transform:scale(0.92); opacity:0.7; }
+        #btnStart:disabled { opacity:0.3; pointer-events:none; filter:grayscale(1); }
+        #statusMsg { font-size:11px; color:#ff6b6b; min-height:18px; text-align:center; font-weight:bold; }
+        @media (max-width:500px) {
+            #hud { font-size:10px; padding:4px 8px; }
+            .control-row .label { font-size:10px; min-width:30px; }
+            #btnStart { font-size:12px; padding:4px 10px; min-width:60px; }
+            .btn-group input[type="number"] { width:50px; font-size:10px; }
+            .throttle-wrap { height:40px; width:30px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="canvasContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="hud">📡 ALT:<span id="altVal">0</span> px &nbsp;🚀 SPD:<span id="spdVal">0</span> px/s<br>🧭 HEAD:<span id="headVal">90</span>° &nbsp;🔥 THR:<span id="thrVal">0</span>%</div>
+        <div id="orbitDisplay">🪐 <span id="orbitCount">0</span>/3</div>
+        <div id="countdownOverlay"><div id="countdownText"></div></div>
+    </div>
+
+    <div id="controls">
+        <div class="control-row">
+            <span class="label">⬅️ SETIR ➡️</span>
+            <input type="range" class="steer" id="steerInput" min="-50" max="50" value="0">
+            <span class="label" style="min-width:25px; color:#48dbfb;" id="steerVal">0</span>
+        </div>
+        <div class="control-row" style="justify-content:space-between;">
+            <div style="display:flex; align-items:center; gap:4px;">
+                <span class="label">🔥 GAS</span>
+                <div class="throttle-wrap">
+                    <input type="range" class="throttle" id="throttleInput" min="0" max="100" value="0">
+                </div>
+                <span class="label" style="min-width:30px; color:#f368e0;" id="throttleVal">0</span>
+            </div>
+            <div class="btn-group">
+                <label>GRAVITASI</label>
+                <input type="number" id="gravityInput" value="8000000" step="100000">
+                <button id="btnStart">🚀 START</button>
+            </div>
+        </div>
+        <div id="statusMsg">⚙️ Atur gas & setir, lalu START</div>
+    </div>
+
+    <script>
+        // ===================== CANVAS =====================
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let W, H, cx, cy, R;
+
+        function resize() {
+            const container = document.getElementById('canvasContainer');
+            W = canvas.width = container.clientWidth;
+            H = canvas.height = container.clientHeight;
+            cx = W/2;
+            cy = H/2;
+            // Bumi lebih kecil (sebelumnya 0.2, sekarang 0.15)
+            R = Math.min(W, H) * 0.15;
+            if (R < 30) R = 30;
+            if (R > 100) R = 100; // batasi biar proporsional
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        // ===================== GAME STATE =====================
+        const game = {
+            state: 'idle', // idle | countdown | flying | crashed | success
+            rocket: { x:0, y:0, vx:0, vy:0, heading:90, throttle:0, steering:0 },
+            mu: 8000000,
+            R: R,
+            orbitCount: 0,
+            totalAngle: 0,
+            prevAngle: 0,
+            countdown: 10,
+            maxThrust: 2500, // sedikit diturunkan biar lebih real
+            turnRate: 5,      // lebih rendah biar gak ngaco
+            subSteps: 10,
+            dt: 1/60,
+            _countdownStart: null
+        };
+
+        // ===================== DOM =====================
+        const steerInput = document.getElementById('steerInput');
+        const throttleInput = document.getElementById('throttleInput');
+        const gravityInput = document.getElementById('gravityInput');
+        const btnStart = document.getElementById('btnStart');
+        const statusMsg = document.getElementById('statusMsg');
+        const countdownText = document.getElementById('countdownText');
+        const altVal = document.getElementById('altVal');
+        const spdVal = document.getElementById('spdVal');
+        const headVal = document.getElementById('headVal');
+        const thrVal = document.getElementById('thrVal');
+        const orbitCountEl = document.getElementById('orbitCount');
+        const steerVal = document.getElementById('steerVal');
+        const throttleVal = document.getElementById('throttleVal');
+
+        // ===================== KONTROL =====================
+        let steerValue = 0;
+        let throttleValue = 0;
+
+        steerInput.addEventListener('input', () => {
+            steerValue = parseFloat(steerInput.value);
+            steerVal.textContent = steerValue;
+        });
+        const resetSteer = () => {
+            steerInput.value = 0;
+            steerValue = 0;
+            steerVal.textContent = 0;
+        };
+        steerInput.addEventListener('pointerup', resetSteer);
+        steerInput.addEventListener('pointercancel', resetSteer);
+        steerInput.addEventListener('touchend', resetSteer);
+        steerInput.addEventListener('touchcancel', resetSteer);
+
+        throttleInput.addEventListener('input', () => {
+            throttleValue = parseFloat(throttleInput.value);
+            throttleVal.textContent = throttleValue;
+        });
+
+        gravityInput.addEventListener('input', () => {
+            game.mu = parseFloat(gravityInput.value) || 8000000;
+        });
+
+        // ===================== FUNGSI =====================
+        function resetRocket() {
+            const r = game.rocket;
+            r.x = cx;
+            r.y = cy - R - 25;
+            r.vx = 0;
+            r.vy = 0;
+            r.heading = 90;
+            game.orbitCount = 0;
+            game.totalAngle = 0;
+            game.prevAngle = Math.atan2(r.y - cy, r.x - cx);
+            game._countdownStart = null;
+        }
+
+        function startCountdown() {
+            if (game.state === 'flying' || game.state === 'countdown') return;
+            resetRocket();
+            game.state = 'countdown';
+            game.countdown = 10;
+            btnStart.disabled = true;
+            statusMsg.style.color = '#feca57';
+            statusMsg.textContent = `⏳ Countdown ${game.countdown}`;
+            countdownText.style.display = 'block';
+            game._countdownStart = Date.now();
+        }
+
+        function launch() {
+            game.state = 'flying';
+            countdownText.style.display = 'none';
+            statusMsg.style.color = '#48dbfb';
+            statusMsg.textContent = '🚀 Meluncur! Atur setir & gas!';
+            btnStart.disabled = false;
+            btnStart.textContent = '🔄 RESTART';
+        }
+
+        function crash() {
+            game.state = 'crashed';
+            statusMsg.style.color = '#ff6b6b';
+            statusMsg.textContent = '💥 ROKET JATUH! Tekan START ulang.';
+            btnStart.textContent = '🔄 RESTART';
+            btnStart.disabled = false;
+        }
+
+        function success() {
+            game.state = 'success';
+            statusMsg.style.color = '#feca57';
+            statusMsg.textContent = '🎉 ORBIT BERHASIL! 3 PUTARAN! 🎉';
+            btnStart.textContent = '🔄 ULANGI';
+            btnStart.disabled = false;
+        }
+
+        // ===================== FISIKA =====================
+        function updatePhysics() {
+            if (game.state !== 'flying') return;
+
+            const r = game.rocket;
+            const mu = game.mu;
+            const dt = game.dt / game.subSteps;
+            const maxThrust = game.maxThrust;
+            const turnRate = game.turnRate;
+
+            const steer = steerValue;
+            const thr = throttleValue;
+
+            // Update heading (derajat per detik)
+            r.heading += steer * turnRate * dt * game.subSteps;
+            r.heading = ((r.heading % 360) + 360) % 360;
+
+            for (let i = 0; i < game.subSteps; i++) {
+                const dx = cx - r.x;
+                const dy = cy - r.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+
+                if (dist < R + 8) {
+                    crash();
+                    return;
+                }
+
+                const gravAcc = mu / (dist * dist);
+                const gravX = gravAcc * (dx / dist);
+                const gravY = gravAcc * (dy / dist);
+
+                const headingRad = r.heading * Math.PI / 180;
+                // Arah: 0 = atas (0,-1), 90 = kanan (1,0)
+                const thrustDirX = Math.sin(headingRad);
+                const thrustDirY = -Math.cos(headingRad);
+
+                const thrustMag = (thr / 100) * maxThrust;
+                const ax = thrustDirX * thrustMag + gravX;
+                const ay = thrustDirY * thrustMag + gravY;
+
+                r.vx += ax * dt;
+                r.vy += ay * dt;
+                r.x += r.vx * dt;
+                r.y += r.vy * dt;
+
+                // Hitung orbit
+                const currentAngle = Math.atan2(r.y - cy, r.x - cx);
+                let delta = currentAngle - game.prevAngle;
+                if (delta > Math.PI) delta -= 2 * Math.PI;
+                if (delta < -Math.PI) delta += 2 * Math.PI;
+                game.totalAngle += delta;
+                game.prevAngle = currentAngle;
+
+                const newOrbit = Math.floor(Math.abs(game.totalAngle) / (2 * Math.PI));
+                if (newOrbit > game.orbitCount) {
+                    game.orbitCount = newOrbit;
+                    orbitCountEl.textContent = game.orbitCount;
+                    if (game.orbitCount >= 3) {
+                        success();
+                        return;
+                    }
+                }
+
+                // HUD
+                const speed = Math.sqrt(r.vx*r.vx + r.vy*r.vy);
+                const alt = dist - R;
+                altVal.textContent = Math.round(alt);
+                spdVal.textContent = Math.round(speed);
+                headVal.textContent = Math.round(r.heading);
+                thrVal.textContent = Math.round(thr);
+            }
+        }
+
+        // ===================== GAMBAR =====================
+        const stars = [];
+        for (let i = 0; i < 200; i++) {
+            stars.push({
+                x: Math.random() * 3000 - 500,
+                y: Math.random() * 3000 - 500,
+                r: Math.random() * 1.8 + 0.3,
+                alpha: 0.5 + Math.random() * 0.5
+            });
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, W, H);
+            ctx.fillStyle = '#050510';
+            ctx.fillRect(0, 0, W, H);
+
+            // Bintang
+            for (const s of stars) {
+                ctx.globalAlpha = s.alpha * (0.7 + 0.3 * Math.sin(Date.now()/2000 + s.x));
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(s.x + cx, s.y + cy, s.r, 0, Math.PI*2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+
+            // Bumi (lebih kecil)
+            const grad = ctx.createRadialGradient(cx - R*0.3, cy - R*0.3, 0, cx, cy, R);
+            grad.addColorStop(0, '#2ed573');
+            grad.addColorStop(0.6, '#1e90ff');
+            grad.addColorStop(1, '#0c2461');
+            ctx.shadowColor = '#1e90ff';
+            ctx.shadowBlur = 30;
+            ctx.beginPath();
+            ctx.arc(cx, cy, R, 0, Math.PI*2);
+            ctx.fillStyle = grad;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Roket
+            const r = game.rocket;
+            const dist = Math.sqrt((r.x-cx)**2 + (r.y-cy)**2);
+            const isCrashed = (game.state === 'crashed');
+            const isSuccess = (game.state === 'success');
+
+            if (!isCrashed && !isSuccess) {
+                // Api
+                if (throttleValue > 5 && game.state === 'flying') {
+                    const headingRad = r.heading * Math.PI / 180;
+                    const backDirX = -Math.sin(headingRad);
+                    const backDirY = Math.cos(headingRad);
+                    const flameLen = 10 + (throttleValue/100)*30;
+                    ctx.save();
+                    ctx.translate(r.x, r.y);
+                    ctx.rotate(headingRad);
+                    const gradFlame = ctx.createRadialGradient(0, -2, 2, 0, -flameLen, flameLen);
+                    gradFlame.addColorStop(0, 'rgba(255,255,200,0.9)');
+                    gradFlame.addColorStop(0.4, 'rgba(255,150,50,0.7)');
+                    gradFlame.addColorStop(1, 'rgba(255,50,0,0)');
+                    ctx.fillStyle = gradFlame;
+                    ctx.beginPath();
+                    ctx.ellipse(0, -flameLen/2, 5 + throttleValue/30, flameLen/2, 0, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.restore();
+                }
+
+                // Emoji 🚀 dengan rotasi yang benar
+                ctx.save();
+                ctx.translate(r.x, r.y);
+                const headingRad = r.heading * Math.PI / 180;
+                // Rotasi agar nose pointing ke atas saat heading=90°
+                ctx.rotate(headingRad - Math.PI/2);
+                ctx.font = '42px serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = '#48dbfb';
+                ctx.shadowBlur = 25;
+                ctx.fillText('🚀', 0, 0);
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            } else if (isCrashed) {
+                ctx.font = '60px serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('💥', r.x, r.y);
+            } else if (isSuccess) {
+                ctx.font = '50px serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = '#feca57';
+                ctx.shadowBlur = 60;
+                ctx.fillText('🚀', r.x, r.y);
+                ctx.shadowBlur = 0;
+            }
+
+            // Garis orbit tipis
+            if (game.state === 'flying' || game.state === 'success') {
+                ctx.strokeStyle = 'rgba(72,219,251,0.07)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5,10]);
+                ctx.beginPath();
+                ctx.arc(cx, cy, dist, 0, Math.PI*2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
+
+        // ===================== LOOP =====================
+        function gameLoop() {
+            if (game.state === 'countdown') {
+                const now = Date.now();
+                if (!game._countdownStart) game._countdownStart = now;
+                const elapsed = (now - game._countdownStart) / 1000;
+                const remaining = Math.max(0, 10 - elapsed);
+                game.countdown = Math.ceil(remaining);
+                countdownText.textContent = game.countdown;
+                statusMsg.textContent = `⏳ Countdown ${game.countdown}`;
+                if (remaining <= 0) {
+                    game._countdownStart = null;
+                    launch();
+                }
+            }
+
+            updatePhysics();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // ===================== EVENT START =====================
+        btnStart.addEventListener('click', () => {
+            if (game.state === 'idle' || game.state === 'crashed' || game.state === 'success') {
+                game.state = 'idle';
+                resetRocket();
+                throttleInput.value = throttleValue;
+                steerInput.value = 0;
+                steerValue = 0;
+                steerVal.textContent = 0;
+                orbitCountEl.textContent = 0;
+                countdownText.style.display = 'none';
+                btnStart.textContent = '🚀 START';
+                btnStart.disabled = false;
+                statusMsg.style.color = '#feca57';
+                statusMsg.textContent = '⚙️ Atur gas & setir, lalu START';
+                startCountdown();
+            } else if (game.state === 'flying' || game.state === 'countdown') {
+                game.state = 'idle';
+                resetRocket();
+                countdownText.style.display = 'none';
+                btnStart.textContent = '🚀 START';
+                statusMsg.style.color = '#feca57';
+                statusMsg.textContent = '🔄 Di-reset. Atur ulang.';
+                orbitCountEl.textContent = 0;
+            }
+        });
+
+        // ===================== JALANKAN =====================
+        resetRocket();
+        countdownText.style.display = 'none';
+        orbitCountEl.textContent = 0;
+        gameLoop();
+
+        console.log('🚀 Game siap! Bumi lebih kecil, arah roket fixed.');
+    </script>
+</body>
+</html>

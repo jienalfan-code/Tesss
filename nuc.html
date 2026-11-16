@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulasi Ledakan Nuklir 2D</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #controls {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 15px 25px;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(255, 51, 0, 0.4);
+            border: 1px solid #ff3300;
+        }
+        h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            letter-spacing: 1px;
+            color: #ffcc00;
+        }
+        button {
+            background: #ff3300;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: 0.2s;
+            text-transform: uppercase;
+        }
+        button:hover {
+            background: #ff6600;
+            box-shadow: 0 0 10px #ff6600;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="controls">
+        <h3>Simulasi Nuklir 2D</h3>
+        <button onclick="detonate()">DETONASI</button>
+    </div>
+
+    <canvas id="simCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set ukuran layar penuh
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        // Blueprint objek partikel api dan asap
+        class Particle {
+            constructor(x, y, type) {
+                this.x = x;
+                this.y = y;
+                this.type = type; // 'flash', 'fireball', 'mushroom', 'stem', 'ring'
+                this.alpha = 1;
+                
+                const angle = Math.random() * Math.PI * 2;
+                
+                if (type === 'flash') {
+                    this.radius = Math.random() * 30 + 20;
+                    this.vx = 0;
+                    this.vy = 0;
+                    this.decay = 0.04;
+                    this.color = `rgba(255, 255, 255, ${this.alpha})`;
+                } else if (type === 'fireball') {
+                    const speed = Math.random() * 10 + 3;
+                    this.vx = Math.cos(angle) * speed;
+                    this.vy = Math.sin(angle) * speed - (Math.random() * 4); 
+                    this.radius = Math.random() * 35 + 20;
+                    this.decay = Math.random() * 0.015 + 0.005;
+                    this.colorValue = Math.random();
+                } else if (type === 'mushroom') {
+                    const speed = Math.random() * 3 + 1;
+                    this.vx = Math.cos(angle) * (speed * 2.5);
+                    this.vy = Math.sin(angle) * speed - Math.random() * 4 - 3; // Mengarah ke atas
+                    this.radius = Math.random() * 25 + 15;
+                    this.decay = Math.random() * 0.005 + 0.003;
+                    this.colorValue = Math.random();
+                } else if (type === 'stem') {
+                    this.vx = (Math.random() - 0.5) * 2.5;
+                    this.vy = -Math.random() * 7 - 5; // Melesat cepat ke atas
+                    this.radius = Math.random() * 15 + 10;
+                    this.decay = Math.random() * 0.008 + 0.004;
+                    this.colorValue = Math.random();
+                } else if (type === 'ring') {
+                    const speed = Math.random() * 6 + 12;
+                    this.vx = Math.cos(angle) * speed;
+                    this.vy = Math.sin(angle) * (speed * 0.15); // Membuat cincin elips horizontal
+                    this.radius = Math.random() * 6 + 3;
+                    this.decay = Math.random() * 0.02 + 0.01;
+                    this.color = `rgba(230, 240, 255, ${this.alpha})`;
+                }
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.alpha -= this.decay;
+                
+                // Efek hambatan udara (gesekan) agar partikel melambat perlahan
+                this.vx *= 0.97;
+                this.vy *= 0.97;
+
+                // Mengembangkan ukuran gumpalan asap seiring waktu
+                if (this.type !== 'flash') {
+                    this.radius += 0.35;
+                }
+
+                // Logika gradasi warna: Putih -> Kuning -> Oranye -> Merah Gelap -> Asap Abu-abu
+                if (this.type === 'fireball' || this.type === 'mushroom' || this.type === 'stem') {
+                    if (this.alpha > 0.75) {
+                        this.color = `rgba(255, 255, 220, ${this.alpha})`; 
+                    } else if (this.alpha > 0.45) {
+                        this.color = `rgba(255, 140, 0, ${this.alpha})`; 
+                    } else if (this.alpha > 0.25) {
+                        this.color = `rgba(160, 30, 0, ${this.alpha})`; 
+                    } else {
+                        const gray = Math.floor(40 + this.colorValue * 35);
+                        this.color = `rgba(${gray}, ${gray}, ${gray}, ${this.alpha})`;
+                    }
+                }
+            }
+
+            draw() {
+                if (this.alpha <= 0) return;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+            }
+        }
+
+        let particles = [];
+        let shockwaveRadius = 0;
+        let shockwaveActive = false;
+        let detonationX = canvas.width / 2;
+        let detonationY = canvas.height - 120;
+
+        function detonate() {
+            // Reset state
+            particles = [];
+            detonationX = canvas.width / 2;
+            detonationY = canvas.height - 120;
+            shockwaveRadius = 0;
+            shockwaveActive = true;
+
+            // 1. Kilatan Cahaya Pertama (Flash)
+            for (let i = 0; i < 5; i++) {
+                particles.push(new Particle(detonationX, detonationY, 'flash'));
+            }
+
+            // 2. Pusat Bola Api Utama (Fireball)
+            for (let i = 0; i < 150; i++) {
+                particles.push(new Particle(detonationX, detonationY, 'fireball'));
+            }
+
+            // 3. Shockwave di tanah (Cincin Partikel)
+            for (let i = 0; i < 80; i++) {
+                particles.push(new Particle(detonationX, detonationY, 'ring'));
+            }
+
+            // 4. Pengulangan Waktu untuk Batang Ledakan & Kepala Jamur (Mushroom Head)
+            let timer = 0;
+            function buildMushroomCloud() {
+                if (timer < 70) {
+                    // Partikel batang (stem) naik dari bawah
+                    for (let i = 0; i < 4; i++) {
+                        particles.push(new Particle(detonationX, detonationY, 'stem'));
+                    }
+                    // Partikel kepala jamur mengembang di ujung atas batang secara dinamis
+                    const currentTopY = detonationY - (timer * 6.5);
+                    for (let i = 0; i < 7; i++) {
+                        particles.push(new Particle(detonationX + (Math.random() - 0.5) * 60, currentTopY, 'mushroom'));
+                    }
+                    timer++;
+                    requestAnimationFrame(buildMushroomCloud);
+                }
+            }
+            buildMushroomCloud();
+        }
+
+        // Loop Animasi Utama
+        function animate() {
+            // Efek motion-blur tipis dengan menumpuk background semi-transparan
+            ctx.fillStyle = 'rgba(5, 5, 5, 0.25)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Menggambar Garis Tanah
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height - 120);
+            ctx.lineTo(canvas.width, canvas.height - 120);
+            ctx.strokeStyle = '#181818';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+
+            // Perbarui dan Gambar Partikel
+            particles.forEach((p, index) => {
+                p.update();
+                p.draw();
+                if (p.alpha <= 0) {
+                    particles.splice(index, 1);
+                }
+            });
+
+            // Efek Gelombang Kejut Tanah (Shockwave Ring)
+            if (shockwaveActive) {
+                shockwaveRadius += 18;
+                ctx.beginPath();
+                ctx.ellipse(detonationX, detonationY, shockwaveRadius, shockwaveRadius * 0.15, 0, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 180, 100, ${Math.max(0, 1 - shockwaveRadius / (canvas.width * 0.85))})`;
+                ctx.lineWidth = 5;
+                ctx.stroke();
+
+                if (shockwaveRadius > canvas.width) {
+                    shockwaveActive = false;
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // Jalankan loop animasi
+        animate();
+        
+        // Detonasi otomatis pertama kali saat aplikasi dibuka
+        setTimeout(detonate, 400);
+    </script>
+</body>
+</html>

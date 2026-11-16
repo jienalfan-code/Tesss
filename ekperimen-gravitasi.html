@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Eksperimen Gravitasi - Lempar Planet</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        body {
+            background: #000;
+            overflow: hidden;
+            height: 100vh;
+            font-family: monospace;
+            touch-action: none;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            background: #050510;
+            cursor: crosshair;
+        }
+
+        /* Panel kontrol di bawah (transparan biar ga ngalangin) */
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 92%;
+            max-width: 500px;
+            background: rgba(10, 10, 30, 0.7);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 15px 20px;
+            color: #c8d6e5;
+            font-size: 13px;
+            box-shadow: 0 0 40px rgba(0, 50, 150, 0.2);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            justify-content: space-between;
+        }
+        .row label {
+            min-width: 40px;
+            color: #8395a7;
+        }
+        .row input[type="range"] {
+            flex: 1;
+            height: 4px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: linear-gradient(90deg, #2e86de, #f368e0);
+            border-radius: 2px;
+            outline: none;
+        }
+        .row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #f1f2f6;
+            cursor: pointer;
+            border: 1px solid #576574;
+            box-shadow: 0 0 10px rgba(0, 150, 255, 0.5);
+        }
+        .val {
+            min-width: 35px;
+            text-align: right;
+            color: #f1f2f6;
+            font-weight: bold;
+        }
+        #info {
+            font-size: 11px;
+            text-align: center;
+            color: #576574;
+            margin-top: 4px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            padding-top: 8px;
+        }
+        #info span {
+            color: #48dbfb;
+        }
+        #clearBtn {
+            background: rgba(255, 70, 70, 0.2);
+            border: 1px solid rgba(255, 70, 70, 0.4);
+            color: #ff6b6b;
+            padding: 4px 14px;
+            border-radius: 12px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        #clearBtn:active {
+            background: rgba(255, 70, 70, 0.5);
+        }
+        #planetCount {
+            color: #a4b0be;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="controls">
+    <div class="row">
+        <label>🔄 Putar</label>
+        <input type="range" id="sliderTang" min="0" max="600" value="280">
+        <span class="val" id="valTang">280</span>
+    </div>
+    <div class="row">
+        <label>↕️ Dorong</label>
+        <input type="range" id="sliderRad" min="-200" max="200" value="0">
+        <span class="val" id="valRad">0</span>
+    </div>
+    <div id="info">
+        👆 <span>Klik / Tap di layar</span> untuk melempar planet baru &nbsp;|&nbsp; 🪐 <span id="planetCount">0</span> planet aktif
+        <button id="clearBtn" style="margin-left:10px;">Hapus Semua</button>
+    </div>
+</div>
+
+<script>
+    // ============= INISIALISASI CANVAS =============
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let W, H;
+
+    function resize() {
+        W = canvas.width = window.innerWidth;
+        H = canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    // ============= KONSTANTA FISIKA =============
+    const G = 800;               // Kekuatan gravitasi (skala mainan)
+    const SUN_MASS = 30000;
+    const SUN_RADIUS = 35;
+    let sun = { x: W/2, y: H/2 };
+
+    // ============= SLIDER CONTROL =============
+    const sliderTang = document.getElementById('sliderTang');
+    const sliderRad = document.getElementById('sliderRad');
+    const valTang = document.getElementById('valTang');
+    const valRad = document.getElementById('valRad');
+    const planetCountSpan = document.getElementById('planetCount');
+
+    let speedTang = parseInt(sliderTang.value);
+    let speedRad = parseInt(sliderRad.value);
+
+    sliderTang.addEventListener('input', () => {
+        speedTang = parseInt(sliderTang.value);
+        valTang.textContent = speedTang;
+    });
+    sliderRad.addEventListener('input', () => {
+        speedRad = parseInt(sliderRad.value);
+        valRad.textContent = speedRad;
+    });
+
+    // ============= ARRAY PLANET & BINTANG =============
+    let planets = [];
+    let planetId = 0;
+
+    // ---------- Bintang Berkelap-kelip ----------
+    const stars = [];
+    for (let i = 0; i < 180; i++) {
+        stars.push({
+            x: Math.random() * 2000 - 500, // biar nyebar jauh
+            y: Math.random() * 2000 - 500,
+            r: Math.random() * 1.8 + 0.4,
+            phase: Math.random() * Math.PI * 2,
+            speed: 0.01 + Math.random() * 0.03
+        });
+    }
+
+    // ---------- Nebula Samar (tipis & indah) ----------
+    const nebulas = [];
+    const nebulaColors = [
+        [80, 40, 180], // ungu
+        [200, 60, 100], // merah muda
+        [30, 100, 200] // biru
+    ];
+    for (let i = 0; i < 3; i++) {
+        nebulas.push({
+            x: (Math.random() - 0.5) * 800,
+            y: (Math.random() - 0.5) * 600,
+            rx: 200 + Math.random() * 400,
+            ry: 150 + Math.random() * 300,
+            color: nebulaColors[i % nebulaColors.length],
+            angle: Math.random() * Math.PI * 2
+        });
+    }
+
+    // ============= KELAS PLANET =============
+    class Planet {
+        constructor(x, y, vx, vy) {
+            this.id = planetId++;
+            this.x = x;
+            this.y = y;
+            this.vx = vx;
+            this.vy = vy;
+            this.radius = 6 + Math.random() * 4;
+            this.mass = 10 + Math.random() * 20;
+            // Warna random cerah
+            const hue = Math.floor(Math.random() * 360);
+            this.color = `hsl(${hue}, 90%, 65%)`;
+            this.trail = [];
+            this.alive = true;
+        }
+
+        update() {
+            // Gaya tarik matahari (Newton)
+            const dx = sun.x - this.x;
+            const dy = sun.y - this.y;
+            const distSq = dx * dx + dy * dy;
+            const dist = Math.sqrt(distSq);
+
+            // Syarat jatuh ke matahari
+            if (dist < SUN_RADIUS + this.radius) {
+                this.alive = false;
+                return;
+            }
+
+            // Percepatan = G * M / r^2 (massa planet ga ngaruh ke percepatan)
+            const accel = (G * SUN_MASS) / distSq;
+            const ax = accel * (dx / dist);
+            const ay = accel * (dy / dist);
+
+            // Update kecepatan & posisi (Semi-implicit Euler)
+            this.vx += ax * 0.02;
+            this.vy += ay * 0.02;
+            this.x += this.vx * 0.02;
+            this.y += this.vy * 0.02;
+
+            // Simpan jejak (trail)
+            this.trail.push({ x: this.x, y: this.y });
+            if (this.trail.length > 80) {
+                this.trail.shift();
+            }
+        }
+
+        draw() {
+            // Gambar jejak (efek cahaya)
+            if (this.trail.length > 2) {
+                ctx.beginPath();
+                ctx.moveTo(this.trail[0].x, this.trail[0].y);
+                for (let i = 1; i < this.trail.length; i++) {
+                    ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                }
+                ctx.strokeStyle = this.color;
+                ctx.globalAlpha = 0.25;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.globalAlpha = 1.0;
+            }
+
+            // Gambar planet
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.shadowColor = this.color;
+            ctx.shadowBlur = 25;
+            ctx.fillStyle = this.color;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    // ============= FUNGSI LEMPAR PLANET =============
+    function spawnPlanet(mx, my) {
+        // Cek jangan sampai spawn di dalam matahari
+        const dx = mx - sun.x;
+        const dy = my - sun.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < SUN_RADIUS + 10) return;
+
+        // Vektor arah dari matahari ke titik klik
+        const radX = dx / dist;
+        const radY = dy / dist;
+        // Vektor tangensial (putar berlawanan arah jarum jam)
+        const tanX = -radY;
+        const tanY = radX;
+
+        // Kombinasi kecepatan dari slider
+        const vx = (tanX * speedTang) + (radX * speedRad);
+        const vy = (tanY * speedTang) + (radY * speedRad);
+
+        const planet = new Planet(mx, my, vx, vy);
+        planets.push(planet);
+        updateCounter();
+    }
+
+    // ============= HAPUS SEMUA =============
+    document.getElementById('clearBtn').addEventListener('click', () => {
+        planets = [];
+        updateCounter();
+    });
+
+    function updateCounter() {
+        planetCountSpan.textContent = planets.length;
+    }
+
+    // ============= EVENT CLICK / TAP =============
+    function handleCanvasClick(e) {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+
+        let clientX, clientY;
+        if (e.touches) {
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        } else {
+            clientX = e.clientX;
+            clientY = e.clientY;
+        }
+
+        const canvasX = (clientX - rect.left) * scaleX;
+        const canvasY = (clientY - rect.top) * scaleY;
+
+        spawnPlanet(canvasX, canvasY);
+    }
+
+    canvas.addEventListener('click', handleCanvasClick);
+    canvas.addEventListener('touchstart', handleCanvasClick, { passive: false });
+
+    // ============= LOOP ANIMASI =============
+    let frame = 0;
+
+    function drawBackground() {
+        // 1. Bersihkan
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = '#050510';
+        ctx.fillRect(0, 0, W, H);
+
+        // 2. Gambar Nebula (samar, diputar pelan)
+        ctx.save();
+        ctx.translate(W/2, H/2);
+        for (const neb of nebulas) {
+            ctx.save();
+            ctx.rotate(neb.angle + frame * 0.0001);
+            const grad = ctx.createRadialGradient(neb.x, neb.y, 0, neb.x, neb.y, neb.rx);
+            const [r, g, b] = neb.color;
+            grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.07)`);
+            grad.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.03)`);
+            grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.ellipse(neb.x, neb.y, neb.rx, neb.ry, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+        ctx.restore();
+
+        // 3. Gambar Bintang (berkelap-kelip)
+        for (const star of stars) {
+            const flicker = 0.6 + 0.4 * Math.sin(frame * star.speed + star.phase);
+            ctx.globalAlpha = flicker * 0.8;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(star.x + W/2, star.y + H/2, star.r * (0.8 + 0.2 * flicker), 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1.0;
+
+        // 4. Gambar Matahari (Induk)
+        const grad = ctx.createRadialGradient(sun.x-10, sun.y-10, 0, sun.x, sun.y, SUN_RADIUS * 1.8);
+        grad.addColorStop(0, '#fffbe6');
+        grad.addColorStop(0.3, '#fdb813');
+        grad.addColorStop(0.8, '#f57c00');
+        grad.addColorStop(1, 'rgba(200, 50, 0, 0)');
+        ctx.shadowColor = '#fdb813';
+        ctx.shadowBlur = 80;
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(sun.x, sun.y, SUN_RADIUS * 1.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Inti matahari
+        ctx.shadowBlur = 120;
+        ctx.beginPath();
+        ctx.arc(sun.x, sun.y, SUN_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffd93d';
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Glow ring tipis
+        ctx.strokeStyle = 'rgba(255, 200, 50, 0.15)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(sun.x, sun.y, SUN_RADIUS + 12, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    function animate() {
+        frame++;
+
+        // Update posisi matahari jika layar di-resize (tetap di tengah)
+        sun.x = W/2;
+        sun.y = H/2;
+
+        // Update semua planet
+        for (let i = planets.length - 1; i >= 0; i--) {
+            const p = planets[i];
+            p.update();
+            if (!p.alive) {
+                planets.splice(i, 1);
+                updateCounter();
+            }
+        }
+
+        // Gambar semuanya
+        drawBackground();
+
+        // Gambar planet-planet (pakai loop biasa biar urutan trail oke)
+        for (const p of planets) {
+            p.draw();
+        }
+
+        // Info kecil di kanvas (opsional)
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.font = '12px monospace';
+        ctx.fillText('Klik untuk lempar', 15, 30);
+
+        requestAnimationFrame(animate);
+    }
+
+    // Jalanin!
+    animate();
+
+    // Update posisi Sun kalau window diubah
+    window.addEventListener('resize', () => {
+        resize();
+        sun.x = W/2;
+        sun.y = H/2;
+    });
+
+    console.log('🚀 Siap lempar! Atur kecepatan, klik layar, dan lihat mana yang berhasil mengorbit!');
+</script>
+</body>
+</html>

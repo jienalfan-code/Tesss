@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Simulasi Gravitasi Newton 2D</title>
+    <style>
+        * { margin: 0; padding: 0; overflow: hidden; }
+        body { 
+            background: #0a0a1a; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            touch-action: none;
+        }
+        canvas {
+            background: #0a0a1a;
+            display: block;
+            max-width: 100vw;
+            max-height: 100vh;
+            border: 1px solid #333;
+            border-radius: 12px;
+            box-shadow: 0 0 30px rgba(0,100,255,0.1);
+        }
+        #info {
+            position: absolute;
+            bottom: 15px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: #6a8caf;
+            font-family: monospace;
+            font-size: 12px;
+            opacity: 0.7;
+            pointer-events: none;
+            text-shadow: 0 0 5px #000;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<div id="info">Klik/Tap layar untuk reset posisi | Jejak orbit otomatis</div>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // Ukuran canvas responsif
+    let W, H, centerX, centerY;
+    function resize() {
+        W = canvas.width = window.innerWidth * 0.98;
+        H = canvas.height = window.innerHeight * 0.98;
+        centerX = W / 2;
+        centerY = H / 2;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    // ---------- KONSTANTA FISIKA (skala buat visual) ----------
+    const G = 500;           // Konstanta gravitasi buat mainan (bukan nilai asli)
+    const DT = 0.02;         // Step waktu per frame (biar orbit stabil)
+    const MAX_TRAIL = 120;   // Panjang jejak orbit
+
+    // ---------- KELAS BADAN LANGIT ----------
+    class Body {
+        constructor(x, y, vx, vy, mass, radius, color, name) {
+            this.x = x; this.y = y;
+            this.vx = vx; this.vy = vy;
+            this.mass = mass;
+            this.radius = radius;
+            this.color = color;
+            this.name = name;
+            this.trail = []; // Array posisi jejak
+        }
+
+        // Tambahkan jejak setiap beberapa frame (di luar loop biar efisien)
+        addTrail() {
+            this.trail.push({ x: this.x, y: this.y });
+            if (this.trail.length > MAX_TRAIL) {
+                this.trail.shift();
+            }
+        }
+
+        draw() {
+            // Gambar jejak (orbit)
+            if (this.trail.length > 2) {
+                ctx.beginPath();
+                ctx.moveTo(this.trail[0].x, this.trail[0].y);
+                for (let i = 1; i < this.trail.length; i++) {
+                    ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                }
+                ctx.strokeStyle = this.color;
+                ctx.globalAlpha = 0.3;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+                ctx.globalAlpha = 1.0;
+            }
+
+            // Gambar badan planet
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.shadowColor = this.color;
+            ctx.shadowBlur = 20;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+            // Nama (opsional, cuma buat yang gede biar nggak rame)
+            if (this.radius > 8) {
+                ctx.fillStyle = '#fff';
+                ctx.font = '12px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(this.name, this.x, this.y - this.radius - 12);
+            }
+        }
+    }
+
+    // ---------- INISIALISASI SISTEM ----------
+    // Skala: 1 unit = 1 pixel. Massa dibuat gede supaya efek gravitasi keliatan.
+    const bodies = [];
+
+    // 1. MATAHARI (pusat, diam agak berat biar nggak goyang)
+    const sun = new Body(centerX, centerY, 0, 0, 15000, 25, '#FDB813', 'Matahari');
+    bodies.push(sun);
+
+    // Fungsi bantu hitung kecepatan orbit lingkaran (Newton): v = sqrt(G * M_center / r)
+    function orbitalSpeed(massCenter, r) {
+        return Math.sqrt((G * massCenter) / r);
+    }
+
+    // 2. BUMI (jarak 220 pixel dari matahari)
+    const rEarth = 220;
+    const vEarth = orbitalSpeed(sun.mass, rEarth);
+    const earth = new Body(
+        centerX + rEarth, centerY, 
+        0, vEarth, // kecepatan ke atas (sumbu Y positif)
+        150, 14, '#4B8BBE', 'Bumi'
+    );
+    bodies.push(earth);
+
+    // 3. BULAN (mengorbit Bumi, tapi Bumi juga bergerak, jadi kita ikutin kecepatan Bumi)
+    const rMoon = 45;
+    // Kecepatan Bulan relatif terhadap Bumi (orbit melingkar) + kecepatan Bumi itu sendiri
+    const vMoonRel = orbitalSpeed(earth.mass, rMoon);
+    const moon = new Body(
+        earth.x + rMoon, earth.y,
+        earth.vx, earth.vy + vMoonRel, // Kecepatan total = kecepatan Bumi + kecepatan orbit relatif
+        30, 6, '#CCCCCC', 'Bulan'
+    );
+    bodies.push(moon);
+
+    // 4. MARS (jarak 350 pixel)
+    const rMars = 350;
+    const vMars = orbitalSpeed(sun.mass, rMars);
+    const mars = new Body(
+        centerX - rMars, centerY,
+        0, -vMars, // kecepatan ke bawah biar beda arah putaran (biar estetik)
+        120, 16, '#E27B58', 'Mars'
+    );
+    bodies.push(mars);
+
+    // 5. VENUS (jarak 130 pixel - lebih dekat, lebih kencang)
+    const rVenus = 130;
+    const vVenus = orbitalSpeed(sun.mass, rVenus);
+    const venus = new Body(
+        centerX, centerY - rVenus,
+        vVenus, 0,
+        100, 12, '#E6B567', 'Venus'
+    );
+    bodies.push(venus);
+
+    // ---------- LOGIKA FISIKA (N-BODY NEWTON) ----------
+    function computeGravity() {
+        // Reset percepatan tiap frame (kita pakai metode Velocity Verlet semi-implicit)
+        // Tapi kita sederhanakan: hitung gaya total, update kecepatan, lalu posisi.
+        const len = bodies.length;
+        // Array buat nyimpen akselerasi sementara
+        const ax = new Array(len).fill(0);
+        const ay = new Array(len).fill(0);
+
+        // Hitung interaksi antar pasangan (i < j)
+        for (let i = 0; i < len; i++) {
+            for (let j = i + 1; j < len; j++) {
+                const a = bodies[i];
+                const b = bodies[j];
+                const dx = b.x - a.x;
+                const dy = b.y - a.y;
+                const distSq = dx*dx + dy*dy;
+                const dist = Math.sqrt(distSq);
+
+                // Hindari singularity (kalau ketemu)
+                if (dist < 1) continue;
+
+                // Gaya gravitasi: F = G * M1 * M2 / r^2
+                // Percepatan pada a: a_magnitude = G * M_b / r^2
+                const accelMagnitudeA = (G * b.mass) / distSq;
+                const accelMagnitudeB = (G * a.mass) / distSq;
+
+                // Normalisasi vektor arah
+                const normX = dx / dist;
+                const normY = dy / dist;
+
+                // Tambahkan percepatan ke a
+                ax[i] += accelMagnitudeA * normX;
+                ay[i] += accelMagnitudeA * normY;
+                // Tambahkan percepatan ke b (berlawanan arah)
+                ax[j] -= accelMagnitudeB * normX;
+                ay[j] -= accelMagnitudeB * normY;
+            }
+        }
+
+        // Update kecepatan & posisi (Semi-implicit Euler / symplectic)
+        for (let i = 0; i < len; i++) {
+            const body = bodies[i];
+            body.vx += ax[i] * DT;
+            body.vy += ay[i] * DT;
+            body.x += body.vx * DT;
+            body.y += body.vy * DT;
+        }
+    }
+
+    // ---------- LOOP ANIMASI ----------
+    let frameCount = 0;
+    function animate() {
+        // 1. Hitung fisika
+        computeGravity();
+
+        // 2. Tambah jejak (tiap 2 frame biar hemat performa)
+        frameCount++;
+        if (frameCount % 2 === 0) {
+            for (const body of bodies) {
+                body.addTrail();
+            }
+        }
+
+        // 3. Gambar
+        ctx.clearRect(0, 0, W, H);
+
+        // Gambar bintang latar (fixed, ringan)
+        // (Dibikin random statis biar ada efek angkasa)
+        if (!window.stars) {
+            window.stars = [];
+            for (let i = 0; i < 100; i++) {
+                window.stars.push({
+                    x: Math.random() * W,
+                    y: Math.random() * H,
+                    r: Math.random() * 1.5 + 0.5
+                });
+            }
+        }
+        ctx.fillStyle = '#ffffff';
+        for (const s of window.stars) {
+            ctx.globalAlpha = 0.6 + Math.random() * 0.4; // efek berkelap-kelip tipis
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1.0;
+
+        // Gambar semua benda
+        for (const body of bodies) {
+            body.draw();
+        }
+
+        requestAnimationFrame(animate);
+    }
+
+    // ---------- RESET POSISI SAAT TAP/KLIK (biar seru) ----------
+    canvas.addEventListener('click', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const mx = (e.clientX - rect.left) * scaleX;
+        const my = (e.clientY - rect.top) * scaleY;
+
+        // Pindahin Matahari ke posisi klik
+        const dx = mx - sun.x;
+        const dy = my - sun.y;
+        for (const body of bodies) {
+            body.x += dx;
+            body.y += dy;
+            body.trail = []; // reset jejak biar fresh
+        }
+    });
+
+    // Touch event buat HP
+    canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const mx = (touch.clientX - rect.left) * scaleX;
+        const my = (touch.clientY - rect.top) * scaleY;
+
+        const dx = mx - sun.x;
+        const dy = my - sun.y;
+        for (const body of bodies) {
+            body.x += dx;
+            body.y += dy;
+            body.trail = [];
+        }
+    });
+
+    // Mulai animasi
+    animate();
+
+    // Info resize
+    console.log('Simulasi gravitasi 2D berjalan! Tap layar untuk reset pusat.');
+</script>
+</body>
+</html>

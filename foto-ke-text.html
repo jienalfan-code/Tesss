@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Steganografi Teks Fleksibel</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; background: #fdfdfd; color: #333; }
+        .box { background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); border: 1px solid #ddd; }
+        input, textarea, button, select { width: 100%; margin: 10px 0; box-sizing: border-box; padding: 12px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; }
+        textarea { height: 80px; }
+        button { background: #6200ee; color: white; border: none; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        button.decode-btn { background: #03dac6; color: #000; }
+        button.copy-btn { background: #2196F3; color: white; display: none; }
+        button.download-btn { background: #4CAF50; color: white; display: none; }
+        label { font-weight: bold; display: block; margin-top: 10px; }
+        img { max-width: 100%; margin-top: 15px; border-radius: 5px; display: block; }
+        .status { font-weight: bold; color: #4CAF50; margin-top: 5px; display: none; }
+        .flex-row { display: flex; gap: 10px; }
+        .flex-row input { flex: 2; }
+        .flex-row select { flex: 1; }
+    </style>
+</head>
+<body>
+
+    <h2>📝 Steganografi Foto ke Teks (Final)</h2>
+
+    <!-- PENGATURAN BATAS UKURAN GLOBAL (Default: 150 KB) -->
+    <div class="box" style="background: #fff8e1; border-color: #ffe082;">
+        <label>⚙️ Batas Maksimal Ukuran Foto (Bisa Diubah):</label>
+        <div class="flex-row">
+            <input type="number" id="maxUkuranInput" value="150" min="1">
+            <select id="satuanUkuran">
+                <option value="KB" selected>KB</option>
+                <option value="MB">MB</option>
+                <option value="GB">GB</option>
+            </select>
+        </div>
+        <small style="color: #666;">*Catatan: Ukuran besar dapat menyebabkan HP lag sementara selama proses konversi data biner.</small>
+    </div>
+
+    <!-- BAGIAN 1: UBAH FOTO JADI TEKS -->
+    <div class="box">
+        <h3>1. Bungkus Foto ke Teks Cerita</h3>
+        <label>Pilih Foto:</label>
+        <input type="file" id="fotoInput" accept="image/*">
+        
+        <label>Tulis Cerita Samaran:</label>
+        <textarea id="teksCerita" placeholder="Tulis cerita bebas di sini..."></textarea>
+        
+        <button onclick="fotoKeTeks()">⚙️ Proses Gambar</button>
+        
+        <button id="btnSalin" class="copy-btn" onclick="salinTeksHasil()">📋 Salin Teks Cerita Rahasia</button>
+        <div id="statusSalin" class="status">✓ Berhasil disalin ke clipboard!</div>
+    </div>
+
+    <!-- BAGIAN 2: UBAH TEKS JADI FOTO -->
+    <div class="box">
+        <h3>2. Ambil Kembali Foto dari Teks</h3>
+        <label>Tempel Teks Cerita di Sini:</label>
+        <textarea id="teksMasukan" placeholder="Paste teks cerita di sini..."></textarea>
+        
+        <button class="decode-btn" onclick="teksKeFoto()">🔓 Ekstrak Foto Rahasia</button>
+        
+        <!-- Tombol Unduh yang Kompatibel untuk Browser HP -->
+        <button id="btnUnduh" class="download-btn" onclick="unduhFotoHasil()">📥 Simpan / Unduh Foto ke HP</button>
+        
+        <label>Foto yang Ditemukan:</label>
+        <div id="tempatFoto"></div>
+    </div>
+
+    <script>
+        const ZW_NOL = '\u200B'; 
+        const ZW_SATU = '\u200C'; 
+        const ZW_SPASI = '\u200D'; 
+        
+        let teksHasilRahasiaGlobal = "";
+        let dataUrlGambarGlobal = ""; 
+        let tipeFileGlobal = "image/png";
+
+        // Menghitung batas ukuran dalam byte berdasarkan input user
+        function hitungBatasByte() {
+            const nilai = parseFloat(document.getElementById('maxUkuranInput').value) || 0;
+            const satuan = document.getElementById('satuanUkuran').value;
+            if (satuan === "KB") return nilai * 1024;
+            if (satuan === "MB") return nilai * 1024 * 1024;
+            if (satuan === "GB") return nilai * 1024 * 1024 * 1024;
+            return 150 * 1024;
+        }
+
+        function bufferKeInvisibleText(buffer) {
+            let binerStr = "";
+            const bytes = new Uint8Array(buffer);
+            for (let i = 0; i < bytes.length; i++) {
+                let bin = bytes[i].toString(2);
+                binerStr += "0".repeat(8 - bin.length) + bin;
+            }
+            let hasilInvisible = "";
+            for (let i = 0; i < binerStr.length; i++) {
+                if (binerStr[i] === '0') hasilInvisible += ZW_NOL;
+                else if (binerStr[i] === '1') hasilInvisible += ZW_SATU;
+            }
+            return ZW_SPASI + hasilInvisible + ZW_SPASI;
+        }
+
+        function invisibleTextKeBuffer(teks) {
+            const indeksMulai = teks.indexOf(ZW_SPASI);
+            const indeksSelesai = teks.lastIndexOf(ZW_SPASI);
+            if (indeksMulai === -1 || indeksSelesai === -1 || indeksMulai === indeksSelesai) return null;
+
+            const kontenRahasia = teks.substring(indeksMulai + 1, indeksSelesai);
+            let binerStr = "";
+            for (let i = 0; i < kontenRahasia.length; i++) {
+                if (kontenRahasia[i] === ZW_NOL) binerStr += '0';
+                else if (kontenRahasia[i] === ZW_SATU) binerStr += '1';
+            }
+            if (binerStr.length % 8 !== 0) return null;
+
+            const bytes = new Uint8Array(binerStr.length / 8);
+            for (let i = 0; i < binerStr.length; i += 8) {
+                bytes[i / 8] = parseInt(binerStr.substr(i, 8), 2);
+            }
+            return bytes.buffer;
+        }
+
+        async function fotoKeTeks() {
+            const fileInput = document.getElementById('fotoInput').files;
+            const cerita = document.getElementById('teksCerita').value || "Ini adalah teks cerita pengalih biasa.";
+
+            if (!fileInput || fileInput.length === 0) return alert("Pilih fotonya dulu!");
+            
+            const file = fileInput[0];
+            const batasMaksimalByte = hitungBatasByte();
+
+            if (file.size > batasMaksimalByte) {
+                const ukuranTerbaca = (file.size / 1024).toFixed(1);
+                alert(`Gagal! Ukuran file (${ukuranTerbaca} KB) melewati batas maksimal yang diatur (${(batasMaksimalByte/1024).toFixed(0)} KB). Silakan naikkan batas pengaturan di atas.`);
+                return;
+            }
+
+            const infoTipe = file.type + "|||"; 
+            const infoBuffer = new TextEncoder().encode(infoTipe);
+            const fotoBuffer = await file.arrayBuffer();
+
+            const gabunganBytes = new Uint8Array(infoBuffer.byteLength + fotoBuffer.byteLength);
+            gabunganBytes.set(new Uint8Array(infoBuffer), 0);
+            gabunganBytes.set(new Uint8Array(fotoBuffer), infoBuffer.byteLength);
+
+            const teksRahasiaTakTerlihat = bufferKeInvisibleText(gabunganBytes.buffer);
+
+            const posisiSpasi = cerita.indexOf(" ");
+            if (posisiSpasi !== -1) {
+                teksHasilRahasiaGlobal = cerita.substring(0, posisiSpasi) + teksRahasiaTakTerlihat + cerita.substring(posisiSpasi);
+            } else {
+                teksHasilRahasiaGlobal = cerita + teksRahasiaTakTerlihat;
+            }
+
+            document.getElementById('btnSalin').style.display = 'flex';
+            document.getElementById('statusSalin').style.display = 'none';
+            alert("Gambar berhasil diproses! Silakan ketuk tombol salin cerita di bawah.");
+        }
+
+        function salinTeksHasil() {
+            if (!teksHasilRahasiaGlobal) return;
+            navigator.clipboard.writeText(teksHasilRahasiaGlobal).then(() => {
+                const status = document.getElementById('statusSalin');
+                status.style.display = 'block';
+                setTimeout(() => { status.style.display = 'none'; }, 3000);
+            }).catch(err => {
+                alert("Gagal menyalin otomatis.");
+            });
+        }
+
+        function teksKeFoto() {
+            const teksMasukan = document.getElementById('teksMasukan').value;
+            if (!teksMasukan) return alert("Tempel dulu teks ceritanya!");
+
+            const totalBuffer = invisibleTextKeBuffer(teksMasukan);
+            if (!totalBuffer) return alert("Waduh, tidak ada data foto rahasia atau teks rusak.");
+
+            const bytes = new Uint8Array(totalBuffer);
+            const teksDekoder = new TextDecoder();
+            const stringAwal = teksDekoder.decode(bytes.subarray(0, 200));
+            const indeksPembatas = stringAwal.indexOf("|||");
+
+            if (indeksPembatas === -1) return alert("Format data rusak.");
+
+            tipeFileGlobal = stringAwal.substring(0, indeksPembatas);
+            const panjangHeaderByte = new TextEncoder().encode(tipeFileGlobal + "|||").length;
+            const fotoBytesAsli = bytes.subarray(panjangHeaderByte);
+
+            let binaryString = "";
+            const chunkSize = 8192;
+            for (let i = 0; i < fotoBytesAsli.length; i += chunkSize) {
+                const subArray = fotoBytesAsli.subarray(i, i + chunkSize);
+                binaryString += String.fromCharCode.apply(null, subArray);
+            }
+            
+            const base64String = btoa(binaryString);
+            dataUrlGambarGlobal = `data:${tipeFileGlobal};base64,${base64String}`;
+
+            const img = document.createElement('img');
+            img.src = dataUrlGambarGlobal;
+            
+            const tempatFoto = document.getElementById('tempatFoto');
+            tempatFoto.innerHTML = "";
+            tempatFoto.appendChild(img);
+
+            document.getElementById('btnUnduh').style.display = 'block';
+            alert("Foto rahasia berhasil ditemukan!");
+        }
+
+        function unduhFotoHasil() {
+            if (!dataUrlGambarGlobal) return;
+
+            // Sambungan isi fungsi unduhFotoHasil():
+            const ekstensi = tipeFileGlobal.split('/')[1] || 'png';
+            const namaFile = `foto_ekstrak_darurat.${ekstensi}`;
+
+            const linkUnduh = document.createElement('a');
+            linkUnduh.href = dataUrlGambarGlobal;
+            linkUnduh.download = namaFile;
+            
+            document.body.appendChild(linkUnduh);
+            linkUnduh.click();
+            document.body.removeChild(linkUnduh);
+        }
+    </script>
+</body>
+</html>

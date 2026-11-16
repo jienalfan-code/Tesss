@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>💥 Simulasi Bom Nuklir & Kota 2D</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            background: #0b0e14;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            padding: 16px;
+        }
+
+        .container {
+            background: #111927;
+            border-radius: 24px;
+            padding: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            max-width: 1240px;
+            width: 100%;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .header h1 {
+            color: #e8edf5;
+            font-weight: 600;
+            font-size: 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .header h1 span {
+            background: linear-gradient(135deg, #f5af19, #f12711);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .stats {
+            display: flex;
+            gap: 18px;
+            flex-wrap: wrap;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 6px 18px;
+            border-radius: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: #a8b9d4;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        .stat-item .value {
+            color: #e8edf5;
+            font-weight: 700;
+            min-width: 30px;
+            text-align: center;
+        }
+        .stat-item .value.energy { color: #f5af19; }
+        .stat-item .value.fission { color: #ff6b6b; }
+        .stat-item .value.particles { color: #4fc3f7; }
+
+        .canvas-wrapper {
+            position: relative;
+            border-radius: 16px;
+            overflow: hidden;
+            background: #0a0e17;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            aspect-ratio: 16/9;
+            background: #0a0e17;
+            cursor: crosshair;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px 20px;
+            margin-top: 14px;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .controls-left {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px 20px;
+            align-items: center;
+        }
+        .controls-right {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #a8b9d4;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        .control-group input[type="range"] {
+            width: 90px;
+            accent-color: #4fc3f7;
+            background: transparent;
+            cursor: pointer;
+        }
+        .btn {
+            padding: 6px 18px;
+            border-radius: 40px;
+            border: none;
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: rgba(255, 255, 255, 0.06);
+            color: #a8b9d4;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #e8edf5;
+            transform: scale(1.02);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #f5af19, #f12711);
+            color: #fff;
+            border: none;
+        }
+        .btn-primary:hover {
+            transform: scale(1.04);
+            box-shadow: 0 4px 24px rgba(241, 39, 17, 0.35);
+        }
+        .btn-danger {
+            background: rgba(255, 107, 107, 0.15);
+            color: #ff6b6b;
+            border-color: rgba(255, 107, 107, 0.2);
+        }
+        .btn-danger:hover {
+            background: rgba(255, 107, 107, 0.25);
+        }
+        .btn-success {
+            background: rgba(79, 195, 247, 0.15);
+            color: #4fc3f7;
+            border-color: rgba(79, 195, 247, 0.2);
+        }
+        .btn-success:hover {
+            background: rgba(79, 195, 247, 0.25);
+        }
+
+        .legend {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            justify-content: center;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #7a8aa5;
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .legend-dot.neutron { background: #4fc3f7; box-shadow: 0 0 8px rgba(79,195,247,0.4); }
+        .legend-dot.proton { background: #ff6b6b; box-shadow: 0 0 8px rgba(255,107,107,0.4); }
+        .legend-dot.electron { background: #ffd93d; box-shadow: 0 0 8px rgba(255,217,61,0.4); }
+        .legend-dot.nucleus { background: #a855f7; box-shadow: 0 0 8px rgba(168,85,247,0.4); }
+        .legend-dot.building { background: #4a6fa5; box-shadow: 0 0 6px rgba(74,111,165,0.3); }
+
+        @media (max-width: 700px) {
+            .container { padding: 12px; }
+            .header h1 { font-size: 1.1rem; }
+            .stats { gap: 8px; padding: 4px 12px; }
+            .stat-item { font-size: 0.7rem; }
+            .controls { flex-direction: column; align-items: stretch; }
+            .controls-left, .controls-right { justify-content: center; flex-wrap: wrap; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>☢️ <span>Bom Nuklir</span> · Kota 2D</h1>
+        <div class="stats">
+            <div class="stat-item">💥 Fisi <span class="value fission" id="fissionCount">0</span></div>
+            <div class="stat-item">⚡ Energi <span class="value energy" id="energyCount">0</span></div>
+            <div class="stat-item">🧬 Partikel <span class="value particles" id="particleCount">0</span></div>
+            <div class="stat-item">🏚️ Bangunan <span class="value" id="buildingCount">0</span></div>
+        </div>
+    </div>
+
+    <div class="canvas-wrapper">
+        <canvas id="simCanvas" width="1200" height="675"></canvas>
+    </div>
+
+    <div class="controls">
+        <div class="controls-left">
+            <div class="control-group">
+                <span>⏩ Kecepatan</span>
+                <input type="range" id="speedSlider" min="0.1" max="3" step="0.1" value="1.0" />
+                <span id="speedLabel" style="min-width:28px; color:#e8edf5;">1.0</span>
+            </div>
+            <div class="control-group">
+                <span>💥 Radius ledakan</span>
+                <input type="range" id="blastRadius" min="80" max="350" step="5" value="200" />
+            </div>
+        </div>
+        <div class="controls-right">
+            <button class="btn btn-primary" id="btnDetonate">💣 Ledakkan!</button>
+            <button class="btn btn-success" id="btnPause">⏸️ Jeda</button>
+            <button class="btn btn-danger" id="btnReset">🔄 Reset</button>
+        </div>
+    </div>
+
+    <div class="legend">
+        <span class="legend-item"><span class="legend-dot neutron"></span> Neutron</span>
+        <span class="legend-item"><span class="legend-dot proton"></span> Proton</span>
+        <span class="legend-item"><span class="legend-dot electron"></span> Elektron</span>
+        <span class="legend-item"><span class="legend-dot nucleus"></span> Inti U-235</span>
+        <span class="legend-item"><span class="legend-dot building"></span> Bangunan (kota)</span>
+    </div>
+</div>
+
+<script>
+    // ================================================================
+    //  SIMULASI BOM NUKLIR + KOTA (2D) — FISI, E=mc², GELOMBANG KEJUT
+    // ================================================================
+
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+
+    // DOM refs
+    const fissionCountEl = document.getElementById('fissionCount');
+    const energyCountEl = document.getElementById('energyCount');
+    const particleCountEl = document.getElementById('particleCount');
+    const buildingCountEl = document.getElementById('buildingCount');
+    const speedSlider = document.getElementById('speedSlider');
+    const speedLabel = document.getElementById('speedLabel');
+    const blastRadiusSlider = document.getElementById('blastRadius');
+    const btnDetonate = document.getElementById('btnDetonate');
+    const btnPause = document.getElementById('btnPause');
+    const btnReset = document.getElementById('btnReset');
+
+    // State
+    let particles = [];           // semua partikel (proton, neutron, elektron, inti)
+    let buildings = [];           // array bangunan {x, y, w, h, health, parts[] }
+    let fissionEvents = [];
+    let shockwave = null;         // {x, y, radius, maxRadius, power, life}
+    let paused = false;
+    let speed = 1.0;
+    let fissionCount = 0;
+    let totalEnergy = 0;
+    let frameId = null;
+    let bombArmed = false;        // apakah bom sudah meledak?
+    let blastRadius = 200;
+
+    // Konfigurasi
+    const CONFIG = {
+        NEUTRON_SPEED: 2.0,
+        PROTON_SPEED: 1.6,
+        ELECTRON_SPEED: 2.8,
+        NUCLEUS_RADIUS: 7,
+        PARTICLE_RADIUS: 2.5,
+        MAX_PARTICLES: 8000,
+        ENERGY_PER_FISSION: 15,
+        MASS_DEFECT: 0.002,       // skala E=mc² (c² diabaikan, kita pakai skala)
+        BUILDING_HEALTH: 100,
+        SHOCKWAVE_DECAY: 0.985,
+        FRAGMENT_SPEED: 3.5,
+    };
+
+    // ---- Kelas Partikel ----
+    class Particle {
+        constructor(x, y, type, vx = 0, vy = 0, mass = 1) {
+            this.x = x;
+            this.y = y;
+            this.type = type;   // 'proton', 'neutron', 'electron', 'nucleus', 'fragment'
+            this.vx = vx;
+            this.vy = vy;
+            this.mass = mass;
+            this.radius = (type === 'nucleus') ? CONFIG.NUCLEUS_RADIUS :
+                          (type === 'electron') ? 2 : CONFIG.PARTICLE_RADIUS;
+            this.alive = true;
+            this.energy = 0;    // energi kinetik (skala)
+            this.trail = [];
+            this.bound = false; // apakah terikat dalam bangunan
+        }
+
+        update() {
+            if (!this.alive) return;
+            // gerak
+            this.x += this.vx * speed;
+            this.y += this.vy * speed;
+            // redaman
+            this.vx *= 0.998;
+            this.vy *= 0.998;
+            // energi kinetik
+            this.energy = 0.5 * this.mass * (this.vx * this.vx + this.vy * this.vy);
+
+            // batas layar (pantul atau hilang)
+            const margin = 10;
+            if (this.x < -margin || this.x > W + margin || this.y < -margin || this.y > H + margin) {
+                this.alive = false;
+                return;
+            }
+            // pantul di tepi (agar tetap di layar)
+            if (this.x < this.radius) { this.x = this.radius; this.vx *= -0.6; }
+            if (this.x > W - this.radius) { this.x = W - this.radius; this.vx *= -0.6; }
+            if (this.y < this.radius) { this.y = this.radius; this.vy *= -0.6; }
+            if (this.y > H - this.radius) { this.y = H - this.radius; this.vy *= -0.6; }
+
+            // trail
+            if (this.type !== 'nucleus' && this.type !== 'fragment') {
+                this.trail.push({ x: this.x, y: this.y });
+                if (this.trail.length > 10) this.trail.shift();
+            }
+        }
+
+        draw(ctx) {
+            if (!this.alive) return;
+            const r = this.radius;
+            // warna berdasarkan tipe
+            let color, glowColor;
+            switch (this.type) {
+                case 'neutron': color = '#4fc3f7'; glowColor = 'rgba(79,195,247,'; break;
+                case 'proton': color = '#ff6b6b'; glowColor = 'rgba(255,107,107,'; break;
+                case 'electron': color = '#ffd93d'; glowColor = 'rgba(255,217,61,'; break;
+                case 'nucleus': color = '#a855f7'; glowColor = 'rgba(168,85,247,'; break;
+                default: color = '#aaaaaa'; glowColor = 'rgba(200,200,200,';
+            }
+
+            // efek glow untuk partikel cepat
+            const spd = Math.hypot(this.vx, this.vy);
+            const glowIntensity = Math.min(1, spd / 4) * 0.6 + 0.2;
+
+            // trail
+            if (this.trail.length > 1 && (this.type === 'neutron' || this.type === 'proton' || this.type === 'electron')) {
+                for (let i = 0; i < this.trail.length - 1; i++) {
+                    const a = i / this.trail.length;
+                    ctx.beginPath();
+                    ctx.moveTo(this.trail[i].x, this.trail[i].y);
+                    ctx.lineTo(this.trail[i + 1].x, this.trail[i + 1].y);
+                    ctx.strokeStyle = `${glowColor}${a * 0.4})`;
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                }
+            }
+
+            // glow radial
+            const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r * 3.5);
+            grad.addColorStop(0, `${glowColor}${glowIntensity * 0.8})`);
+            grad.addColorStop(1, `${glowColor}0)`);
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, r * 3.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // badan
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 16;
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // highlight
+            if (r > 2) {
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.beginPath();
+                ctx.arc(this.x - r * 0.25, this.y - r * 0.25, r * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+    }
+
+    // ---- Bangunan ----
+    class Building {
+        constructor(x, y, w, h) {
+            this.x = x;
+            this.y = y;
+            this.w = w;
+            this.h = h;
+            this.health = CONFIG.BUILDING_HEALTH + Math.random() * 40;
+            this.maxHealth = this.health;
+            this.parts = [];    // partikel yang membentuk bangunan (terikat)
+            this.alive = true;
+            this.destroyed = false;
+            // isi dengan partikel (proton, neutron, elektron) secara acak
+            const density = 0.7;
+            const count = Math.floor(w * h * density * 0.008) + 4;
+            for (let i = 0; i < Math.min(count, 25); i++) {
+                const px = x + Math.random() * w;
+                const py = y + Math.random() * h;
+                const types = ['proton', 'neutron', 'electron'];
+                const type = types[Math.floor(Math.random() * types.length)];
+                const p = new Particle(px, py, type, 0, 0, 1);
+                p.bound = true;
+                p.radius = 1.5 + Math.random() * 1.5;
+                this.parts.push(p);
+                particles.push(p);
+            }
+        }
+
+        takeDamage(dmg) {
+            if (!this.alive) return;
+            this.health -= dmg;
+            if (this.health <= 0 && !this.destroyed) {
+                this.destroy();
+            }
+        }
+
+        destroy() {
+            if (this.destroyed) return;
+            this.destroyed = true;
+            this.alive = false;
+            // lepaskan partikel dengan kecepatan acak (ledakan)
+            for (let p of this.parts) {
+                p.bound = false;
+                const angle = Math.random() * 2 * Math.PI;
+                const spd = 0.5 + Math.random() * CONFIG.FRAGMENT_SPEED;
+                p.vx += Math.cos(angle) * spd * (0.5 + Math.random());
+                p.vy += Math.sin(angle) * spd * (0.5 + Math.random());
+                p.radius = 1.5 + Math.random() * 2.5;
+                p.type = 'fragment';
+            }
+        }
+
+        draw(ctx) {
+            if (!this.alive) return;
+            const healthRatio = this.health / this.maxHealth;
+            const color = `hsl(${120 * healthRatio}, ${60 + 30 * (1 - healthRatio)}%, ${40 + 20 * healthRatio}%)`;
+            ctx.fillStyle = color;
+            ctx.shadowColor = 'rgba(255,255,255,0.05)';
+            ctx.shadowBlur = 8;
+            ctx.fillRect(this.x, this.y, this.w, this.h);
+            ctx.shadowBlur = 0;
+            // border
+            ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(this.x, this.y, this.w, this.h);
+        }
+    }
+
+    // ---- Inisialisasi kota ----
+    function initCity() {
+        buildings = [];
+        particles = [];
+        fissionEvents = [];
+        shockwave = null;
+        fissionCount = 0;
+        totalEnergy = 0;
+        bombArmed = false;
+
+        // buat bangunan di grid (kota)
+        const cols = 9;
+        const rows = 6;
+        const bw = 45, bh = 35;
+        const gap = 10;
+        const startX = 60, startY = 60;
+
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const x = startX + c * (bw + gap) + (r % 2) * 12;
+                const y = startY + r * (bh + gap);
+                // variasi ukuran
+                const w = bw * (0.7 + Math.random() * 0.5);
+                const h = bh * (0.7 + Math.random() * 0.5);
+                const b = new Building(x, y, w, h);
+                buildings.push(b);
+            }
+        }
+
+        // tambahkan bangunan acak di sekitar
+        for (let i = 0; i < 8; i++) {
+            const x = 80 + Math.random() * (W - 160);
+            const y = 80 + Math.random() * (H - 160);
+            const w = 30 + Math.random() * 40;
+            const h = 30 + Math.random() * 40;
+            buildings.push(new Building(x, y, w, h));
+        }
+
+        // ---- BUAT BOM (inti uranium) di pusat ----
+        const bombX = W / 2;
+        const bombY = H / 2;
+        // buat 20-30 inti uranium (nucleus) berdekatan
+        for (let i = 0; i < 28; i++) {
+            const angle = Math.random() * 2 * Math.PI;
+            const dist = 5 + Math.random() * 30;
+            const x = bombX + Math.cos(angle) * dist;
+            const y = bombY + Math.sin(angle) * dist;
+            const nuc = new Particle(x, y, 'nucleus', 0, 0, 5);
+            nuc.radius = 5 + Math.random() * 4;
+            nuc.bound = true;
+            particles.push(nuc);
+        }
+
+        // tambahkan beberapa neutron di sekitar bom
+        for (let i = 0; i < 12; i++) {
+            const angle = Math.random() * 2 * Math.PI;
+            const dist = 20 + Math.random() * 50;
+            const x = bombX + Math.cos(angle) * dist;
+            const y = bombY + Math.sin(angle) * dist;
+            const n = new Particle(x, y, 'neutron', Math.cos(angle) * 0.5, Math.sin(angle) * 0.5, 1);
+            n.bound = false;
+            particles.push(n);
+        }
+
+        // simpan referensi bom (untuk detonasi)
+        window.bombCenter = { x: bombX, y: bombY };
+
+        updateStats();
+    }
+
+    // ---- Detonasi bom ----
+    function detonateBomb() {
+        if (bombArmed) return;
+        bombArmed = true;
+
+        // cari semua inti di sekitar pusat bom
+        const bombX = window.bombCenter.x;
+        const bombY = window.bombCenter.y;
+        const nuclei = particles.filter(p => p.type === 'nucleus' && p.alive && p.bound);
+        if (nuclei.length === 0) return;
+
+        // pilih salah satu inti untuk difisi pertama
+        const target = nuclei[Math.floor(Math.random() * nuclei.length)];
+        triggerFission(target);
+
+        // juga tambahkan neutron cepat ke arah inti lain
+        for (let n of particles) {
+            if (n.type === 'neutron' && n.alive && !n.bound) {
+                const angle = Math.random() * 2 * Math.PI;
+                const spd = 1.5 + Math.random() * 2;
+                n.vx += Math.cos(angle) * spd;
+                n.vy += Math.sin(angle) * spd;
+            }
+        }
+
+        // buat gelombang kejut awal
+        shockwave = {
+            x: bombX,
+            y: bombY,
+            radius: 20,
+            maxRadius: blastRadius,
+            power: 2.0,
+            life: 1.0,
+            decay: 0.006,
+        };
+
+        // tambahkan energi besar
+        totalEnergy += CONFIG.ENERGY_PER_FISSION * 50;
+        updateStats();
+    }
+
+    // ---- Fungsi Fisi ----
+    function triggerFission(nucleus) {
+        if (!nucleus.alive) return;
+        nucleus.alive = false;
+        nucleus.bound = false;
+        fissionCount++;
+        totalEnergy += CONFIG.ENERGY_PER_FISSION;
+
+        // pecah menjadi proton, neutron, elektron (fragment)
+        const nFragments = 4 + Math.floor(Math.random() * 5);
+        for (let i = 0; i < nFragments; i++) {
+            if (particles.length >= CONFIG.MAX_PARTICLES) break;
+            const angle = Math.random() * 2 * Math.PI;
+            const spd = 1.0 + Math.random() * CONFIG.FRAGMENT_SPEED * 1.5;
+            const types = ['proton', 'neutron', 'electron'];
+            const type = types[Math.floor(Math.random() * types.length)];
+            const p = new Particle(
+                nucleus.x + Math.cos(angle) * 4,
+                nucleus.y + Math.sin(angle) * 4,
+                type,
+                Math.cos(angle) * spd,
+                Math.sin(angle) * spd,
+                1
+            );
+            p.radius = 1.5 + Math.random() * 2;
+            p.bound = false;
+            particles.push(p);
+        }
+
+        // tambahkan energi ke partikel terdekat (efek ledakan)
+        for (let p of particles) {
+            if (p.alive && p !== nucleus) {
+                const d = Math.hypot(p.x - nucleus.x, p.y - nucleus.y);
+                if (d < 80) {
+                    const angle = Math.atan2(p.y - nucleus.y, p.x - nucleus.x);
+                    const force = (1 - d / 80) * 2.0;
+                    p.vx += Math.cos(angle) * force;
+                    p.vy += Math.sin(angle) * force;
+                }
+            }
+        }
+
+        // reaksi berantai: cari inti lain di dekat sini
+        for (let p of particles) {
+            if (p.type === 'nucleus' && p.alive && p.bound) {
+                const d = Math.hypot(p.x - nucleus.x, p.y - nucleus.y);
+                if (d < 45 && Math.random() < 0.55) {
+                    triggerFission(p);
+                }
+            }
+        }
+
+        // efek visual ledakan
+        fissionEvents.push({
+            x: nucleus.x,
+            y: nucleus.y,
+            radius: 8,
+            maxRadius: 40 + Math.random() * 50,
+            life: 1.0,
+            decay: 0.015 + Math.random() * 0.02,
+        });
+
+        updateStats();
+    }
+
+    // ---- Update & Draw ----
+    function updateStats() {
+        const alive = particles.filter(p => p.alive).length;
+        particleCountEl.textContent = alive;
+        fissionCountEl.textContent = fissionCount;
+        energyCountEl.textContent = Math.round(totalEnergy);
+        const aliveBuildings = buildings.filter(b => b.alive).length;
+        buildingCountEl.textContent = aliveBuildings;
+    }
+
+    function update() {
+        if (paused) return;
+
+        // Update partikel
+        for (let p of particles) {
+            p.update();
+        }
+        // hapus partikel mati (kecuali yang terikat)
+        particles = particles.filter(p => p.alive || p.bound);
+
+        // Update bangunan
+        for (let b of buildings) {
+            if (!b.alive) continue;
+            // cek tabrakan dengan partikel berkecepatan tinggi
+            for (let p of particles) {
+                if (!p.alive || p.bound) continue;
+                const spd = Math.hypot(p.vx, p.vy);
+                if (spd < 0.3) continue;
+                // apakah partikel di dalam area bangunan?
+                if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) {
+                    const dmg = spd * 1.2 + 0.5;
+                    b.takeDamage(dmg);
+                    // pantulkan partikel
+                    p.vx *= -0.3;
+                    p.vy *= -0.3;
+                    // tambahkan energi ke partikel
+                    p.vx += (Math.random() - 0.5) * 0.5;
+                    p.vy += (Math.random() - 0.5) * 0.5;
+                }
+            }
+            // jika bangunan hancur, partikelnya sudah dilepas di destroy()
+        }
+
+        // Update gelombang kejut
+        if (shockwave) {
+            shockwave.radius += 1.8 * speed;
+            shockwave.life -= shockwave.decay * speed;
+            shockwave.power *= 0.995;
+            // kerusakan bangunan dalam radius
+            for (let b of buildings) {
+                if (!b.alive) continue;
+                const cx = b.x + b.w / 2;
+                const cy = b.y + b.h / 2;
+                const d = Math.hypot(cx - shockwave.x, cy - shockwave.y);
+                if (d < shockwave.radius + 10) {
+                    const dmg = shockwave.power * (1 - d / shockwave.maxRadius) * 2.5;
+                    if (dmg > 0.5) b.takeDamage(dmg);
+                }
+            }
+            // lepaskan partikel dari bangunan yang hancur karena gelombang
+            if (shockwave.life <= 0 || shockwave.radius > shockwave.maxRadius) {
+                shockwave = null;
+            }
+        }
+
+        // Update efek fisi (visual)
+        for (let e of fissionEvents) {
+            e.life -= e.decay * speed;
+            e.radius += (e.maxRadius - e.radius) * 0.06 * speed;
+        }
+        fissionEvents = fissionEvents.filter(e => e.life > 0);
+
+        // Reaksi berantai spontan (jika ada inti dan neutron)
+        for (let n of particles) {
+            if (n.type === 'neutron' && n.alive && !n.bound) {
+                for (let nuc of particles) {
+                    if (nuc.type === 'nucleus' && nuc.alive && nuc.bound) {
+                        const d = Math.hypot(n.x - nuc.x, n.y - nuc.y);
+                        if (d < 25 && Math.random() < 0.02 * speed) {
+                            triggerFission(nuc);
+                            n.alive = false; // neutron diserap
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Batasi jumlah partikel
+        if (particles.length > CONFIG.MAX_PARTICLES) {
+            particles = particles.slice(0, CONFIG.MAX_PARTICLES);
+        }
+
+        updateStats();
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, W, H);
+
+        // Latar
+        const bg = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, W*0.7);
+        bg.addColorStop(0, '#0f1a2b');
+        bg.addColorStop(1, '#060a12');
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, W, H);
+
+        // Grid halus
+        ctx.strokeStyle = 'rgba(255,255,255,0.02)';
+        ctx.lineWidth = 0.5;
+        for (let i = 0; i < W; i += 40) {
+            ctx.beginPath();
+            ctx.moveTo(i, 0);
+            ctx.lineTo(i, H);
+            ctx.stroke();
+        }
+        for (let i = 0; i < H; i += 40) {
+            ctx.beginPath();
+            ctx.moveTo(0, i);
+            ctx.lineTo(W, i);
+            ctx.stroke();
+        }
+
+        // Gambar bangunan
+        for (let b of buildings) {
+            b.draw(ctx);
+        }
+
+        // Gambar partikel (di atas bangunan)
+        for (let p of particles) {
+            p.draw(ctx);
+        }
+
+        // Gambar efek fisi
+        for (let e of fissionEvents) {
+            const alpha = e.life * 0.6;
+            const grad = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.radius);
+            grad.addColorStop(0, `rgba(255, 217, 61, ${alpha * 0.9})`);
+            grad.addColorStop(0.3, `rgba(255, 160, 30, ${alpha * 0.6})`);
+            grad.addColorStop(0.7, `rgba(255, 80, 20, ${alpha * 0.3})`);
+            grad.addColorStop(1, 'rgba(255, 50, 0, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+            ctx.fill();
+            // sinar
+            for (let i = 0; i < 6; i++) {
+                const angle = (i / 6) * Math.PI * 2 + e.life * 3;
+                const len = e.radius * (0.3 + 0.7 * e.life);
+                ctx.strokeStyle = `rgba(255, 200, 80, ${alpha * 0.3})`;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(e.x, e.y);
+                ctx.lineTo(e.x + Math.cos(angle) * len, e.y + Math.sin(angle) * len);
+                ctx.stroke();
+            }
+        }
+
+        // Gambar gelombang kejut
+        if (shockwave) {
+            const alpha = shockwave.life * 0.5;
+            ctx.strokeStyle = `rgba(255, 200, 100, ${alpha * 0.6})`;
+            ctx.lineWidth = 3 + (1 - shockwave.life) * 6;
+            ctx.beginPath();
+            ctx.arc(shockwave.x, shockwave.y, shockwave.radius, 0, Math.PI * 2);
+            ctx.stroke();
+            // glow
+            const grad = ctx.createRadialGradient(shockwave.x, shockwave.y, 0, shockwave.x, shockwave.y, shockwave.radius);
+            grad.addColorStop(0, `rgba(255, 200, 100, ${alpha * 0.1})`);
+            grad.addColorStop(1, 'rgba(255, 200, 100, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(shockwave.x, shockwave.y, shockwave.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Info overlay
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.font = '12px monospace';
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.fillText(`partikel: ${particles.filter(p=>p.alive).length} | bangunan: ${buildings.filter(b=>b.alive).length}`, 12, 22);
+
+        // Indikator bom
+        if (!bombArmed) {
+            ctx.fillStyle = 'rgba(255,200,100,0.3)';
+            ctx.font = 'bold 16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('☢️ BOM ATOM (klik "Ledakkan!")', W/2, 30);
+            ctx.textAlign = 'left';
+        } else {
+            ctx.fillStyle = 'rgba(255,50,50,0.5)';
+            ctx.font = 'bold 16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('💥 LEDAKAN BERLANGSUNG', W/2, 30);
+            ctx.textAlign = 'left';
+        }
+    }
+
+    // ---- Loop ----
+    function loop() {
+        update();
+        draw();
+        frameId = requestAnimationFrame(loop);
+    }
+
+    // ---- Kontrol ----
+    function resetSim() {
+        cancelAnimationFrame(frameId);
+        initCity();
+        bombArmed = false;
+        shockwave = null;
+        fissionEvents = [];
+        paused = false;
+        btnPause.textContent = '⏸️ Jeda';
+        if (frameId) cancelAnimationFrame(frameId);
+        loop();
+    }
+
+    function togglePause() {
+        paused = !paused;
+        btnPause.textContent = paused ? '▶️ Lanjut' : '⏸️ Jeda';
+    }
+
+    // ---- Event listeners ----
+    speedSlider.addEventListener('input', () => {
+        speed = parseFloat(speedSlider.value);
+        speedLabel.textContent = speed.toFixed(1);
+    });
+
+    blastRadiusSlider.addEventListener('input', () => {
+        blastRadius = parseInt(blastRadiusSlider.value);
+    });
+
+    btnDetonate.addEventListener('click', detonateBomb);
+    btnPause.addEventListener('click', togglePause);
+    btnReset.addEventListener('click', resetSim);
+
+    // Klik canvas: tambahkan neutron di posisi (jika belum meledak)
+    canvas.addEventListener('click', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
+        if (x > 0 && x < W && y > 0 && y < H) {
+            if (particles.length < CONFIG.MAX_PARTICLES) {
+                const n = new Particle(x, y, 'neutron', (Math.random()-0.5)*1.2, (Math.random()-0.5)*1.2, 1);
+                n.bound = false;
+                particles.push(n);
+                updateStats();
+            }
+        }
+    });
+
+    // Keyboard
+    document.addEventListener('keydown', (e) => {
+        if (e.key === ' ' || e.key === 'Space') {
+            e.preventDefault();
+            togglePause();
+        }
+        if (e.key === 'r' || e.key === 'R') resetSim();
+        if (e.key === 'd' || e.key === 'D') detonateBomb();
+    });
+
+    // ---- Start ----
+    initCity();
+    loop();
+
+    console.log('💣 Simulasi Bom Nuklir + Kota siap!');
+    console.log('🎮 Spasi = jeda | R = reset | D = ledakkan');
+    console.log('🖱️ Klik canvas = tambah neutron');
+</script>
+</body>
+</html>

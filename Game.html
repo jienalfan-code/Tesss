@@ -1,0 +1,303 @@
+<!--<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chaos Game - Segitiga Sierpinski Animasi HD</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #111;
+            color: white;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        h3 { margin-bottom: 5px; text-align: center; }
+        p { margin-top: 0; color: #aaa; font-size: 14px; text-align: center; padding: 0 10px; }
+        /* CSS hanya mengatur ukuran tampilan visual di layar */
+        canvas {
+            border: 2px solid #444;
+            background-color: #000;
+            cursor: crosshair;
+            box-shadow: 0 0 20px rgba(255,255,255,0.1);
+            width: 600px;
+            height: 520px;
+            max-width: 95vw;
+            max-height: 70vh;
+        }
+    </style>
+</head>
+<body>
+
+    <h3>Sentuh / Klik di Dalam Segitiga</h3>
+    <p>Animasi titik fraktal super tajam akan menyebar dari posisi sentuhanmu!</p>
+    <canvas id="sierpinskiCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('sierpinskiCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Mengatur resolusi tinggi (HD) agar tidak blur saat di-zoom
+        const dpr = window.devicePixelRatio || 1;
+        const displayWidth = 600;
+        const displayHeight = 520;
+
+        // Atur ukuran internal piksel berdasarkan kerapatan layar perangkat
+        canvas.width = displayWidth * dpr;
+        canvas.height = displayHeight * dpr;
+        
+        // Skala context agar koordinat pemrograman tetap sinkron dengan CSS
+        ctx.scale(dpr, dpr);
+
+        // Matikan efek smoothing bawaan browser agar titik 1px tetap tajam kotak
+        ctx.imageSmoothingEnabled = false;
+
+        // Tentukan 3 titik sudut utama (menggunakan koordinat skala display biasa)
+        const sudut = [
+            { x: displayWidth / 2, y: 30 },       // Sudut Atas
+            { x: 50, y: displayHeight - 40 },     // Sudut Kiri Bawah
+            { x: displayWidth - 50, y: displayHeight - 40 } // Sudut Kanan Bawah
+        ];
+
+        let animasiID = null;
+        let totalTitikDigambar = 0;
+        const TARGET_TITIK = 80000; // Jumlah total titik sampai foto utuh sempurna
+        const TITIK_PER_FRAME = 300; // Kecepatan animasi (jumlah titik yang muncul per frame)
+
+        let saatIniX = 0;
+        let saatIniY = 0;
+
+        function gambarSegitigaAwal() {
+            ctx.fillStyle = '#ff3366';
+            sudut.forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(sudut[0].x, sudut[0].y);
+            ctx.lineTo(sudut[1].x, sudut[1].y);
+            ctx.lineTo(sudut[2].x, sudut[2].y);
+            ctx.closePath();
+            ctx.stroke();
+        }
+
+        gambarSegitigaAwal();
+
+        // Fungsi loop animasi yang berjalan perlahan
+        function loopAnimasi() {
+            if (totalTitikDigambar >= TARGET_TITIK) {
+                cancelAnimationFrame(animasiID);
+                return; // Berhenti jika foto sudah utuh sempurna
+            }
+
+            ctx.fillStyle = 'rgba(0, 255, 204, 0.8)'; // Warna Cyan tajam
+
+            // Gambar beberapa ratus titik sekaligus dalam satu frame agar transisi mulus
+            for (let i = 0; i < TITIK_PER_FRAME; i++) {
+                const sudutAcak = sudut[Math.floor(Math.random() * 3)];
+                
+                // Rumus matematika Chaos Game
+                saatIniX = (saatIniX + sudutAcak.x) / 2;
+                saatIniY = (saatIniY + sudutAcak.y) / 2;
+
+                // Menggambar titik mikro berukuran 1x1 piksel
+                ctx.fillRect(saatIniX, saatIniY, 1, 1);
+                totalTitikDigambar++;
+            }
+
+            // Minta browser menjalankan fungsi ini kembali pada frame berikutnya
+            animasiID = requestAnimationFrame(loopAnimasi);
+        }
+
+        canvas.addEventListener('click', function(event) {
+            // Hentikan animasi sebelumnya jika ada (jika user ngeklik ulang di tengah jalan)
+            if (animasiID) cancelAnimationFrame(animasiID);
+            
+            // Reset canvas dan hitungan titik
+            ctx.clearRect(0, 0, displayWidth, displayHeight);
+            gambarSegitigaAwal();
+            totalTitikDigambar = 0;
+
+            // Dapatkan posisi koordinat sentuhan secara akurat
+            const rect = canvas.getBoundingClientRect();
+            saatIniX = event.clientX - rect.left;
+            saatIniY = event.clientY - rect.top;
+
+            // Gambar indikator titik awal sentuhan (kuning)
+            ctx.fillStyle = '#ffcc00';
+            ctx.beginPath();
+            ctx.arc(saatIniX, saatIniY, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Mulai loop animasi perlahan
+            loopAnimasi();
+        });
+    </script>
+</body>
+</html>
+
+-->
+
+
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chaos Game - Segi Lima Sierpinski (Pentflake) HD</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #111;
+            color: white;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        h3 { margin-bottom: 5px; text-align: center; }
+        p { margin-top: 0; color: #aaa; font-size: 14px; text-align: center; padding: 0 10px; }
+        canvas {
+            border: 2px solid #444;
+            background-color: #000;
+            cursor: crosshair;
+            box-shadow: 0 0 20px rgba(255,255,255,0.1);
+            width: 550px;
+            height: 550px;
+            max-width: 95vw;
+            max-height: 70vh;
+        }
+    </style>
+</head>
+<body>
+
+    <h3>Sentuh / Klik di Dalam Segi Lima</h3>
+    <p>Fraktal simetris berbasis Rasio Emas akan terbentuk dari titik sentuhanmu!</p>
+    <canvas id="pentagonCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('pentagonCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const dpr = window.devicePixelRatio || 1;
+        const size = 550; // Canvas berbentuk persegi agar segi lima simetris
+
+        canvas.width = size * dpr;
+        canvas.height = size * dpr;
+        ctx.scale(dpr, dpr);
+        ctx.imageSmoothingEnabled = false;
+
+        // 1. Hitung 5 titik sudut utama segi lima beraturan secara matematis
+        const sudut = [];
+        const pusatX = size / 2;
+        const pusatY = size / 2 + 20; // Sedikit digeser ke bawah agar seimbang
+        const radius = size / 2 - 40;  // Jarak dari pusat ke setiap sudut
+
+        for (let i = 0; i < 5; i++) {
+            // Menggunakan sudut matematika (dimulai dari atas, berputar 72 derajat setiap sudut)
+            const sudutRad = (i * 2 * Math.PI / 5) - Math.PI / 2;
+            sudut.push({
+                x: pusatX + radius * Math.cos(sudutRad),
+                y: pusatY + radius * Math.sin(sudutRad)
+            });
+        }
+
+        // 2. Variabel Kontrol Animasi & Matematika
+        let animasiID = null;
+        let totalTitikDigambar = 0;
+        const TARGET_TITIK = 120000; // Segi lima butuh lebih banyak titik agar padat dan utuh
+        const TITIK_PER_FRAME = 500;  // Kecepatan memunculkan titik per frame
+
+        // RUMUS RAHASIA: Rasio Emas untuk Segi Lima (1 - 1/phi)
+        // Jika menggunakan 0.5 pola akan rusak, harus menggunakan ~0.618 dari titik awal
+        const RASIO = 0.61803398875; 
+
+        let saatIniX = 0;
+        let saatIniY = 0;
+
+        function gambarSegiLimaAwal() {
+            // Gambar 5 sudut utama (merah muda)
+            ctx.fillStyle = '#ff3366';
+            sudut.forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            
+            // Gambar garis bantu transparan luar
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(sudut[0].x, sudut[0].y);
+            for(let i = 1; i < 5; i++) {
+                ctx.lineTo(sudut[i].x, sudut[i].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+        }
+
+        gambarSegiLimaAwal();
+
+        // 3. Loop Animasi Utama
+        function loopAnimasi() {
+            if (totalTitikDigambar >= TARGET_TITIK) {
+                cancelAnimationFrame(animasiID);
+                return;
+            }
+
+            ctx.fillStyle = 'rgba(255, 102, 0, 0.8)'; // Menggunakan warna oranye neon yang tajam
+
+            for (let i = 0; i < TITIK_PER_FRAME; i++) {
+                // Pilih salah satu dari 5 sudut secara acak
+                const sudutAcak = sudut[Math.floor(Math.random() * 5)];
+                
+                // Rumus pergerakan berbasis Rasio Emas menuju sudut target
+                saatIniX = saatIniX + (sudutAcak.x - saatIniX) * RASIO;
+                saatIniY = saatIniY + (sudutAcak.y - saatIniY) * RASIO;
+
+                // Gambar titik piksel mikro anti-blur
+                ctx.fillRect(saatIniX, saatIniY, 1, 1);
+                totalTitikDigambar++;
+            }
+
+            animasiID = requestAnimationFrame(loopAnimasi);
+        }
+
+        // 4. Event Handler saat diklik
+        canvas.addEventListener('click', function(event) {
+            if (animasiID) cancelAnimationFrame(animasiID);
+            
+            ctx.clearRect(0, 0, size, size);
+            gambarSegiLimaAwal();
+            totalTitikDigambar = 0;
+
+            const rect = canvas.getBoundingClientRect();
+            saatIniX = event.clientX - rect.left;
+            saatIniY = event.clientY - rect.top;
+
+            // Gambar titik awal sentuhan (kuning)
+            ctx.fillStyle = '#ffcc00';
+            ctx.beginPath();
+            ctx.arc(saatIniX, saatIniY, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Jalankan animasi segi lima
+            loopAnimasi();
+        });
+    </script>
+</body>
+</html>
+

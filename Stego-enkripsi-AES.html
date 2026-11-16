@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stegano Foto + AES Opsional</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; background: #f4f7f6; color: #333; }
+        .box { background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e0e0e0; }
+        input, textarea, button { width: 100%; margin: 10px 0; box-sizing: border-box; padding: 12px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; }
+        textarea { height: 80px; resize: none; }
+        .key-input { background: #fff3e0; border: 1px solid #ffb74d; font-weight: bold; }
+        button { background: #e65100; color: white; border: none; font-weight: bold; cursor: pointer; }
+        button.decode-btn { background: #00796b; }
+        label { font-weight: bold; display: block; margin-top: 10px; }
+        .hint { font-size: 12px; color: #666; margin-top: -5px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+    <h2>🔐 Stegano Foto + AES (Sandi Opsional)</h2>
+
+    <!-- BAGIAN SISIPI DATA -->
+    <div class="box">
+        <h3>1. Sembunyikan Teks ke Foto</h3>
+        <label>Pilih Foto Sampul (Format JPG/JPEG):</label>
+        <input type="file" id="fotoInput" accept="image/jpeg, image/jpg">
+        
+        <label>Kata Sandi Pengunci (Opsional):</label>
+        <input type="password" id="kunciSandi" class="key-input" placeholder="Kosongkan jika tidak ingin dikunci...">
+        <div class="hint">*Jika dikosongkan, teks bisa langsung dibaca tanpa sandi.</div>
+        
+        <label>Tulis Data Rahasia (Password/PIN/Catatan):</label>
+        <textarea id="teksRahasia" placeholder="Tulis data rahasia di sini..."></textarea>
+        
+        <button onclick="prosesDanSembunyikan()">Proses & Unduh Foto</button>
+    </div>
+
+    <!-- BAGIAN BONGKAR DATA -->
+    <div class="box">
+        <h3>2. Ambil Teks dari Foto</h3>
+        <label>Pilih Foto yang Ada Data Rahasianya:</label>
+        <input type="file" id="fotoBaca" accept="image/jpeg, image/jpg">
+        
+        <label>Masukkan Kata Sandi Pengunci (Jika Ada):</label>
+        <input type="password" id="kunciBuka" class="key-input" placeholder="Kosongkan jika foto tidak dikunci...">
+        
+        <button class="decode-btn" onclick="prosesDanBongkar()">Buka & Ekstrak Teks</button>
+        
+        <label>Hasil Teks Rahasia Asli:</label>
+        <textarea id="teksHasil" readonly placeholder="Teks rahasia asli akan muncul di sini..." style="background: #e8f5e9;"></textarea>
+    </div>
+
+    <!-- SCRIPT LOGIKA UTAMA AKAN DISAMBUNG DI BAGIAN 2 -->
+    <script>
+        // Penanda khusus untuk membedakan data terenkripsi (AES) dan data teks biasa (PLAIN)
+        const TAG_AES_MULAI = "###AES_ENC_START###";
+        const TAG_AES_SELESAI = "###AES_ENC_END###";
+        const TAG_PLAIN_MULAI = "###PLAIN_START###";
+        const TAG_PLAIN_SELESAI = "###PLAIN_END###";
+
+        async function dapatkanKunciKripto(passwordKetik, salt) {
+            const encoder = new TextEncoder();
+            const baseKey = await crypto.subtle.importKey(
+                "raw", encoder.encode(passwordKetik), "PBKDF2", false, ["deriveKey"]
+            );
+            return crypto.subtle.deriveKey(
+                { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
+                baseKey, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+            );
+        }
+
+        async function enkripsiAES(teksMurni, passwordKetik) {
+            const encoder = new TextEncoder();
+            const salt = crypto.getRandomValues(new Uint8Array(16));
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const cryptoKey = await dapatkanKunciKripto(passwordKetik, salt);
+
+            const teksTerenkripsi = await crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv }, cryptoKey, encoder.encode(teksMurni)
+            );
+
+            const dataGabungan = new Uint8Array(salt.byteLength + iv.byteLength + teksTerenkripsi.byteLength);
+            dataGabungan.set(salt, 0);
+            dataGabungan.set(iv, salt.byteLength);
+            dataGabungan.set(new Uint8Array(teksTerenkripsi), salt.byteLength + iv.byteLength);
+
+            return btoa(String.fromCharCode.apply(null, dataGabungan));
+        }
+
+        async function dekripsiAES(teksSandiBase64, passwordKetik) {
+            try {
+                const binerString = atob(teksSandiBase64);
+                const dataGabungan = new Uint8Array(binerString.length);
+                for (let i = 0; i < binerString.length; i++) dataGabungan[i] = binerString.charCodeAt(i);
+
+                const salt = dataGabungan.subarray(0, 16);
+                const iv = dataGabungan.subarray(16, 28);
+                const teksTerenkripsi = dataGabungan.subarray(28);
+
+                const cryptoKey = await dapatkanKunciKripto(passwordKetik, salt);
+                const teksMurniBuffer = await crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv: iv }, cryptoKey, teksTerenkripsi
+                );
+
+                return new TextDecoder().decode(teksMurniBuffer);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function prosesDanSembunyikan() {
+            const fileInput = document.getElementById('fotoInput').files;
+            const password = document.getElementById('kunciSandi').value;
+            const teksRahasia = document.getElementById('teksRahasia').value;
+
+            if (!fileInput || fileInput.length === 0) return alert("Pilih fotonya dulu bos!");
+            if (!teksRahasia) return alert("Isi teks rahasia yang ingin disimpan!");
+
+            let paketData = "";
+
+            // CEK OPSIONAL: Jika password diisi, jalankan AES. Jika kosong, kirim plain teks.
+            if (password.trim() !== "") {
+                const kodeAcakAES = await enkripsiAES(teksRahasia, password);
+                paketData = TAG_AES_MULAI + kodeAcakAES + TAG_AES_SELESAI;
+            } else {
+                paketData = TAG_PLAIN_MULAI + teksRahasia + TAG_PLAIN_SELESAI;
+            }
+
+            const arrayBuffer = await fileInput[0].arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+
+            let posisiEOI = bytes.length;
+            for (let i = bytes.length - 2; i >= 0; i--) {
+                if (bytes[i] === 0xFF && bytes[i+1] === 0xD9) {
+                    posisiEOI = i + 2;
+                    break;
+                }
+            }
+
+            const paketBytes = new TextEncoder().encode(paketData);
+            const fotoBaruBytes = new Uint8Array(posisiEOI + paketBytes.length);
+            fotoBaruBytes.set(bytes.subarray(0, posisiEOI), 0);
+            fotoBaruBytes.set(paketBytes, posisiEOI);
+
+            const blob = new Blob([fotoBaruBytes], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = password.trim() !== "" ? "foto_terkunci_aes.jpg" : "foto_tanpa_sandi.jpg";
+            link.click();
+
+            alert("Sukses! Data berhasil dimasukkan ke dalam foto.");
+        }
+
+        async function prosesDanBongkar() {
+            const fileInput = document.getElementById('fotoBaca').files;
+            const password = document.getElementById('kunciBuka').value;
+
+            if (!fileInput || fileInput.length === 0) return alert("Pilih foto terlebih dahulu!");
+
+            const arrayBuffer = await fileInput[0].arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            const seluruhTeks = new TextDecoder().decode(bytes);
+
+            // Cek apakah data di dalam foto bertipe PLAIN (Tanpa sandi)
+            const indeksPlainMulai = seluruhTeks.indexOf(TAG_PLAIN_MULAI);
+            const indeksPlainSelesai = seluruhTeks.indexOf(TAG_PLAIN_SELESAI);
+
+            if (indeksPlainMulai !== -1 && indeksPlainSelesai !== -1) {
+                const teksMurni = seluruhTeks.substring(indeksPlainMulai + TAG_PLAIN_MULAI.length, indeksPlainSelesai);
+                document.getElementById('teksHasil').value = teksMurni;
+                return alert("Sukses! Data tanpa enkripsi berhasil dibaca langsung.");
+            }
+
+            // Cek apakah data di dalam foto bertipe AES (Pakai sandi)
+            const indeksAesMulai = seluruhTeks.indexOf(TAG_AES_MULAI);
+            const indeksAesSelesai = seluruhTeks.indexOf(TAG_AES_SELESAI);
+
+            if (indeksAesMulai !== -1 && indeksAesSelesai !== -1) {
+                if (password.trim() === "") {
+                    return alert("Gagal! Foto ini dikunci dengan enkripsi AES. Kamu wajib memasukkan kata sandi!");
+                }
+
+                const kodeAcakAES = seluruhTeks.substring(indeksAesMulai + TAG_AES_MULAI.length, indeksAesSelesai);
+                const hasilTeksMurni = await dekripsiAES(kodeAcakAES, password);
+
+                if (hasilTeksMurni === null) {
+                    document.getElementById('teksHasil').value = "";
+                    alert("Gagal! Kata sandi pengunci salah.");
+                } else {
+                    document.getElementById('teksHasil').value = hasilTeksMurni;
+                    alert("Sukses! Data terenkripsi berhasil dibongkar.");
+                }
+            } else {
+                alert("Aman! Tidak ada data rahasia apa pun yang terdeteksi di foto ini.");
+            }
+        }
+    </script>
+</body>
+</html>
